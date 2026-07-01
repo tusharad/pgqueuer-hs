@@ -1,9 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main where
+module Main (main) where
 
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Exception (catch, SomeException)
 import Data.ByteString.Char8 (pack)
 import Data.UUID.V4 (nextRandom)
 import Database.PostgreSQL.Simple (connectPostgreSQL)
@@ -29,7 +28,7 @@ producerExample = do
   -- Enqueue 100 jobs
   jobIds <- enqueueMultiple qm
     (replicate 100 (Entrypoint "fetch"))
-    [Just (pack $ "Message " ++ show n) | n <- [1..100]]
+    [Just (pack $ "Message " ++ show n) | n <- [1..100] :: [Int]]
     (replicate 100 0)  -- default priority
     []  -- no execute_after
     []  -- no dedup keys
@@ -123,13 +122,13 @@ combinedExample = do
   
   -- Producer thread
   queueMgrId2 <- nextRandom
-  producerThreadId <- forkIO $ do
+  _producerThreadId <- forkIO $ do
     conn' <- connectPostgreSQL ""
     qm <- createQueueManager conn' settings queueMgrId2
     threadDelay (2000000)  -- Wait 2 seconds
     jobIds <- enqueueMultiple qm
       (replicate 10 (Entrypoint "fetch"))
-      [Just (pack $ "Job " ++ show n) | n <- [1..10]]
+      [Just (pack $ "Job " ++ show n) | n <- [1..10] :: [Int]]
       (replicate 10 0)
       []
       []
@@ -138,7 +137,7 @@ combinedExample = do
   
   -- Consumer thread
   queueMgrId3 <- nextRandom
-  consumerThreadId <- forkIO $ do
+  _consumerThreadId <- forkIO $ do
     conn' <- connectPostgreSQL ""
     qm <- createQueueManager conn' settings queueMgrId3
     processedCount <- processJobsWithTimeout 5 qm
@@ -151,9 +150,9 @@ combinedExample = do
 -- | Process jobs with a timeout (in seconds)
 processJobsWithTimeout :: Int -> QueueManager -> IO Int
 processJobsWithTimeout timeoutSecs qm = do
-  let maxTime = timeoutSecs * 1000000  -- Convert to microseconds
-  go 0 0
+  go 0 0 
   where
+    maxTime = timeoutSecs * 1000000  -- Convert to microseconds
     go count elapsedTime
       | elapsedTime > maxTime = return count
       | otherwise = do

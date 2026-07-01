@@ -24,18 +24,18 @@ module PGQueuer
   ) where
 
 import Control.Exception (bracket)
-import Data.Aeson (Value, ToJSON)
+import Data.Aeson (Value)
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
-import Data.Time (NominalDiffTime, UTCTime)
+import Data.Time (NominalDiffTime)
 import Data.UUID (UUID)
 import Database.PostgreSQL.Simple (Connection, close, connectPostgreSQL)
 import qualified Data.Map.Strict as Map
 
 import PGQueuer.Types
 import PGQueuer.Settings
-import PGQueuer.Schema (install, uninstall, verifyStructure)
+import PGQueuer.Schema (install, uninstall, verifyStructure_)
 import qualified PGQueuer.Query as Q
 
 -- ============================================================================
@@ -186,7 +186,7 @@ retryJob qm job delay tb = Q.retryJob (qmConnection qm) (qmSettings qm) job dela
 
 -- | Verify schema structure
 verifyStructure :: QueueManager -> IO (Either String ())
-verifyStructure qm = PGQueuer.Schema.verifyStructure (qmConnection qm) (qmSettings qm)
+verifyStructure qm = PGQueuer.Schema.verifyStructure_ (qmConnection qm) (qmSettings qm)
 
 -- | Install schema
 installSchema :: QueueManager -> IO ()

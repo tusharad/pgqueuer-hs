@@ -3,24 +3,38 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module PGQueuer.Types where
+module PGQueuer.Types (
+    JobId(..),
+    ScheduleId(..),
+    Entrypoint(..),
+    Channel(..),
+    EntrypointExecutionParameter(..),
+    Job(..),
+    JobStatus(..),
+    QueueStatistics(..),
+    OnFailure(..),
+    onFailureToText,
+    textToOnFailure,
+    defaultHeartbeatTimeout,
+    defaultBatchSize,
+    jobStatusToText,
+    defaultChannel,
+) where
 
-import Data.Aeson (FromJSON, ToJSON, Value)
+import Data.Aeson (Value)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.UUID (UUID)
-import Database.PostgreSQL.Simple.FromField (FromField (..), Conversion)
+import Database.PostgreSQL.Simple.FromField (FromField (..))
 import Database.PostgreSQL.Simple.ToField (ToField (..))
-import Database.PostgreSQL.Simple.Types (Identifier (..))
 import Data.Maybe (fromMaybe)
 import GHC.Generics (Generic)
-import qualified Data.UUID as UUID
+import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 
 -- ============================================================================
 -- Type aliases and newtypes for safety
 -- ============================================================================
-
 newtype JobId = JobId Int
   deriving stock (Show, Eq, Ord, Generic)
   deriving newtype (FromField, ToField)
@@ -91,6 +105,7 @@ data Operation
   | Truncate
   deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
 
+    {-
 operationToText :: Operation -> Text
 operationToText Insert = "insert"
 operationToText Update = "update"
@@ -103,7 +118,7 @@ textToOperation "update" = Just Update
 textToOperation "delete" = Just Delete
 textToOperation "truncate" = Just Truncate
 textToOperation _ = Nothing
-
+-}
 -- ============================================================================
 -- Event types
 -- ============================================================================
@@ -257,3 +272,59 @@ defaultBatchSize = 100
 
 defaultHeartbeatTimeout :: Int
 defaultHeartbeatTimeout = 300 -- 5 minutes in seconds
+
+-- ============================================================================
+-- FromRow instances for database records
+-- ============================================================================
+
+instance FromRow Job where
+  fromRow = Job
+    <$> field  -- jobId
+    <*> field  -- jobPriority
+    <*> field  -- jobCreated
+    <*> field  -- jobUpdated
+    <*> field  -- jobHeartbeat
+    <*> field  -- jobExecuteAfter
+    <*> field  -- jobStatus
+    <*> field  -- jobEntrypoint
+    <*> field  -- jobPayload
+    <*> field  -- jobAttempts
+    <*> field  -- jobQueueManagerId
+    <*> field  -- jobHeaders
+
+instance FromRow LogEntry where
+  fromRow = LogEntry
+    <$> field  -- logCreated
+    <*> field  -- logJobId
+    <*> field  -- logStatus
+    <*> field  -- logPriority
+    <*> field  -- logEntrypoint
+    <*> field  -- logTraceback
+    <*> field  -- logAggregated
+
+instance FromRow QueueStatistics where
+  fromRow = QueueStatistics
+    <$> field  -- statsCount
+    <*> field  -- statsEntrypoint
+    <*> field  -- statsPriority
+    <*> field  -- statsStatus
+
+instance FromRow LogStatistics where
+  fromRow = LogStatistics
+    <$> field  -- logStatsCount
+    <*> field  -- logStatsCreated
+    <*> field  -- logStatsEntrypoint
+    <*> field  -- logStatsPriority
+    <*> field  -- logStatsStatus
+
+instance FromRow Schedule where
+  fromRow = Schedule
+    <$> field  -- scheduleId
+    <*> field  -- scheduleExpression
+    <*> field  -- scheduleEntrypoint
+    <*> field  -- scheduleHeartbeat
+    <*> field  -- scheduleCreated
+    <*> field  -- scheduleUpdated
+    <*> field  -- scheduleNextRun
+    <*> field  -- scheduleLastRun
+    <*> field  -- scheduleStatus
