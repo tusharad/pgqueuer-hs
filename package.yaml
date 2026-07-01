@@ -22,7 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - bytestring
-- postgresql-simple >= 7.0
+- postgresql-simple >= 0.7
 - aeson
 - text
 - time
