@@ -1,6 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module PGQueuer.Settings where
+module PGQueuer.Settings (
+    DBSettings(..),
+    defaultDBSettings,
+    queueTable,
+    queueTableLog,
+    statisticsTable,
+    schedulesTable,
+    queueStatusType,
+    function,
+    trigger
+) where
 
 import Data.Text (Text)
 import PGQueuer.Types (Channel, defaultChannel)

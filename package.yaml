@@ -22,7 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - bytestring
-- postgresql-simple
+- postgresql-simple >= 7.0
 - aeson
 - text
 - time
@@ -42,8 +42,8 @@ ghc-options:
 - -Wincomplete-uni-patterns
 - -Wmissing-export-lists
 - -Wmissing-home-modules
-- -Wpartial-fields
 - -Wredundant-constraints
+- -Wno-partial-fields
 
 library:
   source-dirs: src

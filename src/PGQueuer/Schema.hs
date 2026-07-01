@@ -3,15 +3,15 @@
 module PGQueuer.Schema
   ( install
   , uninstall
-  , verifyStructure
+  , verifyStructure_
   ) where
 
 import Database.PostgreSQL.Simple (Connection, execute_)
 import Database.PostgreSQL.Simple.Types (Only (..))
 import qualified Database.PostgreSQL.Simple as PG
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import PGQueuer.Settings
+import Data.String (fromString)
 
 -- ============================================================================
 -- Schema installation and management
@@ -42,8 +42,8 @@ uninstall conn _settings = do
   return ()
 
 -- | Verify the schema is properly installed
-verifyStructure :: Connection -> DBSettings -> IO (Either String ())
-verifyStructure conn _settings = do
+verifyStructure_ :: Connection -> DBSettings -> IO (Either String ())
+verifyStructure_ conn _settings = do
   result <- PG.query_ conn "SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'pgqueuer_queue');" :: IO [Only Bool]
   case result of
     [(Only True)] -> return $ Right ()
@@ -54,7 +54,7 @@ verifyStructure conn _settings = do
 -- ============================================================================
 
 textToQuery :: T.Text -> PG.Query
-textToQuery = PG.Query . TE.encodeUtf8
+textToQuery = fromString . T.unpack
 
 -- ============================================================================
 -- SQL Definitions

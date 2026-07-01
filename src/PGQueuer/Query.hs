@@ -11,7 +11,7 @@ module PGQueuer.Query
   , requeueJobs
   , markJobAsCancelled
   , updateHeartbeat
-  , jobStatus
+  , jobStatusById
   , clearQueue
   , listFailedJobs
   ) where
@@ -19,11 +19,10 @@ module PGQueuer.Query
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
-import Data.Time (UTCTime, NominalDiffTime, addUTCTime)
+import Data.Time (NominalDiffTime, addUTCTime)
 import Data.UUID (UUID)
 import Database.PostgreSQL.Simple
-import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
-import Database.PostgreSQL.Simple.Types (Only (..), Query (..))
+import Database.PostgreSQL.Simple.Types (Query (..), PGArray (..))
 import qualified Data.Text.Encoding as TE
 import PGQueuer.Settings
 import PGQueuer.Types
@@ -36,62 +35,6 @@ import qualified Data.Text as T
 
 textToQuery :: Text -> Query
 textToQuery = Query . TE.encodeUtf8
-
--- ============================================================================
--- FromRow instances for database records
--- ============================================================================
-
-instance FromRow Job where
-  fromRow = Job
-    <$> field  -- jobId
-    <*> field  -- jobPriority
-    <*> field  -- jobCreated
-    <*> field  -- jobUpdated
-    <*> field  -- jobHeartbeat
-    <*> field  -- jobExecuteAfter
-    <*> field  -- jobStatus
-    <*> field  -- jobEntrypoint
-    <*> field  -- jobPayload
-    <*> field  -- jobAttempts
-    <*> field  -- jobQueueManagerId
-    <*> field  -- jobHeaders
-
-instance FromRow LogEntry where
-  fromRow = LogEntry
-    <$> field  -- logCreated
-    <*> field  -- logJobId
-    <*> field  -- logStatus
-    <*> field  -- logPriority
-    <*> field  -- logEntrypoint
-    <*> field  -- logTraceback
-    <*> field  -- logAggregated
-
-instance FromRow QueueStatistics where
-  fromRow = QueueStatistics
-    <$> field  -- statsCount
-    <*> field  -- statsEntrypoint
-    <*> field  -- statsPriority
-    <*> field  -- statsStatus
-
-instance FromRow LogStatistics where
-  fromRow = LogStatistics
-    <$> field  -- logStatsCount
-    <*> field  -- logStatsCreated
-    <*> field  -- logStatsEntrypoint
-    <*> field  -- logStatsPriority
-    <*> field  -- logStatsStatus
-
-instance FromRow Schedule where
-  fromRow = Schedule
-    <$> field  -- scheduleId
-    <*> field  -- scheduleExpression
-    <*> field  -- scheduleEntrypoint
-    <*> field  -- scheduleHeartbeat
-    <*> field  -- scheduleCreated
-    <*> field  -- scheduleUpdated
-    <*> field  -- scheduleNextRun
-    <*> field  -- scheduleLastRun
-    <*> field  -- scheduleStatus
 
 -- ============================================================================
 -- Enqueue operations
@@ -118,8 +61,7 @@ enqueueSingle conn settings entrypoint payload priority executeAfter dedupeKey h
     maybeToList (Just x) = [Just x]
 
 -- | Enqueue multiple jobs
-enqueueMultiple
-  :: Connection
+enqueueMultiple :: Connection
   -> DBSettings
   -> [Entrypoint]
   -> [Maybe ByteString]
@@ -129,36 +71,39 @@ enqueueMultiple
   -> [Maybe Value]
   -> IO [JobId]
 enqueueMultiple conn settings entrypoints payloads priorities executeAfters dedupeKeys headersList = do
-  let q = T.unlines
-        [ "WITH inserted AS ("
-        , "    INSERT INTO " <> queueTable settings
-        , "    (priority, entrypoint, payload, execute_after, dedupe_key, headers, status)"
-        , "    VALUES ("
-        , "        UNNEST($1::int[]),"
-        , "        UNNEST($2::text[]),"
-        , "        UNNEST($3::bytea[]),"
-        , "        UNNEST($4::interval[]) + NOW(),"
-        , "        UNNEST($5::text[]),"
-        , "        UNNEST($6::jsonb[]),"
-        , "        'queued'"
-        , "    )"
-        , "    RETURNING id, entrypoint, status, priority"
-        , ")"
-        , "INSERT INTO " <> queueTableLog settings
-        , "(job_id, status, entrypoint, priority)"
-        , "SELECT id, 'queued', entrypoint, priority"
-        , "FROM inserted"
-        , "RETURNING job_id AS id"
-        ]
-  result <- query conn (textToQuery q)
-    ( priorities
-    , map (\(Entrypoint e) -> e) entrypoints
-    , payloads
-    , executeAfters
-    , dedupeKeys
-    , headersList
-    ) :: IO [Only JobId]
-  return $ map fromOnly result
+    let q = T.unlines
+            [ "WITH inserted AS ("
+            , "    INSERT INTO " <> queueTable settings
+            , "    (priority, entrypoint, payload, execute_after, dedupe_key, headers, status)"
+            , "    SELECT"
+            , "        p, e, pay, ea + NOW(), d, h, 'queued'"
+            , "    FROM UNNEST("
+            , "        ?::int[],"
+            , "        ?::text[],"
+            , "        ?::bytea[],"
+            , "        ?::interval[],"
+            , "        ?::text[],"
+            , "        ?::jsonb[]"
+            , "    ) AS t(p, e, pay, ea, d, h)"
+            , "    RETURNING id, entrypoint, status, priority"
+            , ")"
+            , "INSERT INTO " <> queueTableLog settings
+            , "(job_id, status, entrypoint, priority)"
+            , "SELECT id, 'queued', entrypoint, priority"
+            , "FROM inserted"
+            , "RETURNING job_id AS id"
+            ]
+
+    result <- query conn (textToQuery q)
+        ( PGArray priorities
+        , PGArray (map (\(Entrypoint e) -> e) entrypoints)
+        , PGArray payloads
+        , PGArray executeAfters
+        , PGArray dedupeKeys
+        , PGArray headersList
+        ) :: IO [Only JobId]
+        
+    return $ map fromOnly result
 
 -- ============================================================================
 -- Dequeue operations
@@ -265,8 +210,8 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
         ]
   query conn (textToQuery q)
     ( batchSize
-    , map (\(Entrypoint e) -> e) entrypoints
-    , concurrencyLimits
+    , PGArray $ map (\(Entrypoint e) -> e) entrypoints
+    , PGArray concurrencyLimits
     , queueMgrId
     , globalLimit
     )
@@ -282,7 +227,7 @@ logJobs
   -> [(JobId, JobStatus, Maybe Value)]  -- (job_id, status, traceback)
   -> IO ()
 logJobs conn settings jobStatuses = do
-  let jobIds = map (\(JobId id, _, _) -> id) jobStatuses
+  let jobIds = map (\(JobId i, _, _) -> i) jobStatuses
       statuses = map (\(_, s, _) -> jobStatusToText s) jobStatuses
       tracebacks = map (\(_, _, tb) -> tb) jobStatuses
       
@@ -325,7 +270,7 @@ logJobs conn settings jobStatuses = do
         , ")"
         , "SELECT id, status, entrypoint, priority, traceback FROM merged"
         ]
-  _ <- execute conn (textToQuery q) (jobIds, statuses, tracebacks)
+  _ <- execute conn (textToQuery q) (PGArray jobIds, PGArray statuses, PGArray tracebacks)
   return ()
 
 -- ============================================================================
@@ -357,7 +302,7 @@ queuedWork conn settings entrypoints = do
         , "WHERE entrypoint = ANY($1::text[])"
         , "  AND status = 'queued'"
         ]
-  result <- query conn (textToQuery q) (Only eps) :: IO [Only Int]
+  result <- query conn (textToQuery q) (Only $ PGArray eps) :: IO [Only Int]
   case result of
     [(Only count)] -> return count
     _ -> return 0
@@ -399,7 +344,7 @@ requeueJobs conn settings jobIds = do
         , "    updated = NOW()"
         , "WHERE id = ANY($1::integer[])"
         ]
-  _ <- execute conn (textToQuery q) (Only jobIds)
+  _ <- execute conn (textToQuery q) (Only $ PGArray jobIds)
   return ()
 
 -- ============================================================================
@@ -414,7 +359,7 @@ markJobAsCancelled conn settings jobIds = do
         , "SET status = 'canceled', updated = NOW()"
         , "WHERE id = ANY($1::integer[])"
         ]
-  _ <- execute conn (textToQuery q) (Only jobIds)
+  _ <- execute conn (textToQuery q) (Only $ PGArray jobIds)
   return ()
 
 -- | Update heartbeat for active jobs
@@ -425,18 +370,18 @@ updateHeartbeat conn settings jobIds = do
         , "SET heartbeat = NOW()"
         , "WHERE id = ANY($1::integer[]) AND status = 'picked'"
         ]
-  _ <- execute conn (textToQuery q) (Only jobIds)
+  _ <- execute conn (textToQuery q) (Only $ PGArray jobIds)
   return ()
 
 -- | Get job status by IDs
-jobStatus :: Connection -> DBSettings -> [JobId] -> IO [(JobId, JobStatus)]
-jobStatus conn settings jobIds = do
+jobStatusById :: Connection -> DBSettings -> [JobId] -> IO [(JobId, JobStatus)]
+jobStatusById conn settings jobIds = do
   let q = T.unlines
         [ "SELECT id, status"
         , "FROM " <> queueTable settings
         , "WHERE id = ANY($1::integer[])"
         ]
-  query conn (textToQuery q) (Only jobIds) :: IO [(JobId, JobStatus)]
+  query conn (textToQuery q) (Only $ PGArray jobIds) :: IO [(JobId, JobStatus)]
 
 -- ============================================================================
 -- Cleanup operations
@@ -456,7 +401,7 @@ clearQueue conn settings mbEntrypoints = do
             [ "DELETE FROM " <> queueTable settings
             , "WHERE entrypoint = ANY($1::text[])"
             ]
-      _ <- execute conn (textToQuery q) (Only eps)
+      _ <- execute conn (textToQuery q) (Only $ PGArray eps)
       return ()
 
 -- | List failed jobs
