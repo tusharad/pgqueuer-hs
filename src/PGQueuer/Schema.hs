@@ -20,7 +20,7 @@ import Data.String (fromString)
 -- | Install the schema in the database
 install :: Connection -> DBSettings -> IO ()
 install conn _settings = do
-  _ <- execute_ conn "CREATE TYPE IF NOT EXISTS pgqueuer_job_status AS ENUM ('queued', 'picked', 'successful', 'exception', 'canceled', 'deleted', 'failed');"
+  _ <- execute_ conn "CREATE TYPE pgqueuer_job_status AS ENUM ('queued', 'picked', 'successful', 'exception', 'canceled', 'deleted', 'failed');"
   _ <- execute_ conn $ textToQuery queueTableSQL
   _ <- execute_ conn $ textToQuery queueLogTableSQL
   _ <- execute_ conn $ textToQuery statisticsTableSQL
