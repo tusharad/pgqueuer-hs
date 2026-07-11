@@ -57,6 +57,7 @@ test-suite pgqueuer-hs-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Tests.PGQueuer
       Paths_pgqueuer_hs
   hs-source-dirs:
       test
@@ -72,6 +73,8 @@ test-suite pgqueuer-hs-test
     , pgqueuer-hs
     , postgresql-simple >=0.7
     , stm
+    , tasty
+    , tasty-hunit
     , text
     , time
     , unix

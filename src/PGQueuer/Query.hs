@@ -291,9 +291,9 @@ queueSize conn settings = do
   let q = T.unlines
         [ "SELECT"
         , "    count(*) AS count,"
-        , "    priority,"
         , "    entrypoint,"
-        , "    status"
+        , "    priority,"
+        , "    status::text AS status"
         , "FROM " <> queueTable settings
         , "GROUP BY entrypoint, priority, status"
         , "ORDER BY count, entrypoint, priority, status"
@@ -385,7 +385,7 @@ updateHeartbeat conn settings jobIds = do
 jobStatusById :: Connection -> DBSettings -> [JobId] -> IO [(JobId, JobStatus)]
 jobStatusById conn settings jobIds = do
   let q = T.unlines
-        [ "SELECT id, status"
+        [ "SELECT id, status::text AS status"
         , "FROM " <> queueTable settings
         , "WHERE id = ANY(?::integer[])"
         ]

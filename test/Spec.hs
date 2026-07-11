@@ -1,2 +1,4 @@
+import Tests.PGQueuer
+
 main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+main = runTests

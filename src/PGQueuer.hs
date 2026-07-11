@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module PGQueuer 
-  ( QueueManager
+  ( QueueManager (..)
   , createQueueManager
   , registerEntrypoint
   , enqueue

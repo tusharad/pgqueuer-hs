@@ -33,12 +33,12 @@ install conn _settings = do
 uninstall :: Connection -> DBSettings -> IO ()
 uninstall conn _settings = do
   _ <- execute_ conn "DROP TRIGGER IF EXISTS pgqueuer_trigger ON pgqueuer_queue;"
-  _ <- execute_ conn "DROP FUNCTION IF EXISTS pgqueuer_notify_fn();"
   _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_queue;"
   _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_queue_log;"
   _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_statistics;"
   _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_schedules;"
   _ <- execute_ conn "DROP TYPE IF EXISTS pgqueuer_job_status;"
+  _ <- execute_ conn "DROP FUNCTION IF EXISTS pgqueuer_notify_fn();"
   return ()
 
 -- | Verify the schema is properly installed
