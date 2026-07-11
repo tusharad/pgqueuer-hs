@@ -67,7 +67,6 @@ data JobStatus
   | Exception
   | Canceled
   | Deleted
-  | Weird
   deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
 
 jobStatusToText :: JobStatus -> Text
@@ -78,7 +77,6 @@ jobStatusToText Failed = "failed"
 jobStatusToText Exception = "exception"
 jobStatusToText Canceled = "canceled"
 jobStatusToText Deleted = "deleted"
-jobStatusToText Weird = "weird"
 
 textToJobStatus :: Text -> Maybe JobStatus
 textToJobStatus "queued" = Just Queued
@@ -88,7 +86,7 @@ textToJobStatus "failed" = Just Failed
 textToJobStatus "exception" = Just Exception
 textToJobStatus "canceled" = Just Canceled
 textToJobStatus "deleted" = Just Deleted
-textToJobStatus _ = Just Weird 
+textToJobStatus _ = Nothing
 
 instance FromField JobStatus where
   fromField f v = fromField f v >>= \t -> return (fromMaybe Queued (textToJobStatus t))
