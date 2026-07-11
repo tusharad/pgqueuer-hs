@@ -20,7 +20,7 @@ import Data.String (fromString)
 -- | Install the schema in the database
 install :: Connection -> DBSettings -> IO ()
 install conn _settings = do
-  _ <- execute_ conn "CREATE TYPE IF NOT EXISTS pgqueuer_job_status AS ENUM ('queued', 'picked', 'successful', 'exception', 'canceled', 'deleted', 'failed');"
+  _ <- execute_ conn "CREATE TYPE pgqueuer_job_status AS ENUM ('queued', 'picked', 'successful', 'exception', 'canceled', 'deleted', 'failed');"
   _ <- execute_ conn $ textToQuery queueTableSQL
   _ <- execute_ conn $ textToQuery queueLogTableSQL
   _ <- execute_ conn $ textToQuery statisticsTableSQL
@@ -191,7 +191,10 @@ triggerFunctionSQL =
 triggerSQL :: T.Text
 triggerSQL =
   T.unlines
-    [ "CREATE TRIGGER IF NOT EXISTS pgqueuer_trigger"
-    , "AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON pgqueuer_queue"
+    [ "CREATE TRIGGER pgqueuer_trigger"
+    , "AFTER INSERT OR UPDATE OR DELETE ON pgqueuer_queue"
     , "FOR EACH ROW EXECUTE FUNCTION pgqueuer_notify_fn();"
+    , "CREATE TRIGGER pgqueuer_trigger_truncate"
+    , "AFTER TRUNCATE ON pgqueuer_queue"
+    , "FOR EACH STATEMENT EXECUTE FUNCTION pgqueuer_notify_fn();"
     ]

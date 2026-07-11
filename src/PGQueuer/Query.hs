@@ -76,7 +76,7 @@ enqueueMultiple conn settings entrypoints payloads priorities executeAfters dedu
             , "    INSERT INTO " <> queueTable settings
             , "    (priority, entrypoint, payload, execute_after, dedupe_key, headers, status)"
             , "    SELECT"
-            , "        p, e, pay, ea + NOW(), d, h, 'queued'"
+            , "        p, e, pay, COALESCE(NOW() + ea, NOW()), d, h, 'queued'"
             , "    FROM UNNEST("
             , "        ?::int[],"
             , "        ?::text[],"
@@ -125,23 +125,29 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
       
       q = T.unlines
         [ "WITH"
+        , "runtime AS ("
+        , "    SELECT"
+        , "        ?::int    AS batch_size,"
+        , "        ?::uuid   AS queue_manager_id,"
+        , "        ?::bigint AS global_limit"
+        , "),"
         , "params AS ("
         , "    SELECT"
-        , "        UNNEST($2::text[])   AS entrypoint,"
-        , "        UNNEST($3::bigint[]) AS concurrency_limit"
+        , "        UNNEST(?::text[])   AS entrypoint,"
+        , "        UNNEST(?::bigint[]) AS concurrency_limit"
         , "),"
         , "picked AS ("
         , "    SELECT entrypoint, COUNT(*) AS total"
-        , "    FROM " <> queueTable settings
-        , "    WHERE queue_manager_id IS NOT NULL"
-        , "      AND entrypoint = ANY($2::text[])"
-        , "    GROUP BY entrypoint"
+        , "    FROM " <> queueTable settings <> " q"
+        , "    WHERE q.queue_manager_id IS NOT NULL"
+        , "      AND EXISTS (SELECT 1 FROM params p WHERE p.entrypoint = q.entrypoint)"
+        , "    GROUP BY q.entrypoint"
         , "),"
         , "worker_load AS ("
         , "    SELECT COUNT(*) AS total"
-        , "    FROM " <> queueTable settings
-        , "    WHERE queue_manager_id = $4"
-        , "      AND entrypoint = ANY($2::text[])"
+        , "    FROM " <> queueTable settings <> " q"
+        , "    WHERE q.queue_manager_id = (SELECT queue_manager_id FROM runtime)"
+        , "      AND EXISTS (SELECT 1 FROM params p WHERE p.entrypoint = q.entrypoint)"
         , "),"
         , "available AS ("
         , "    SELECT p.entrypoint"
@@ -160,13 +166,13 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
         , "          AND q2.status = 'queued'"
         , "          AND q2.execute_after < NOW()"
         , "        ORDER BY q2.priority DESC, q2.id ASC"
-        , "        LIMIT $1"
+        , "        LIMIT (SELECT batch_size FROM runtime)"
         , "        FOR UPDATE SKIP LOCKED"
         , "    ) q"
-        , "    WHERE ($5::BIGINT IS NULL"
-        , "           OR (SELECT total FROM worker_load) < $5)"
+        , "    WHERE ((SELECT global_limit FROM runtime) IS NULL"
+        , "           OR (SELECT total FROM worker_load) < (SELECT global_limit FROM runtime))"
         , "    ORDER BY q.priority DESC, q.id ASC"
-        , "    LIMIT $1"
+        , "    LIMIT (SELECT batch_size FROM runtime)"
         , "),"
         , "next_queued AS ("
         , "    SELECT id FROM next_queued_src"
@@ -178,11 +184,11 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
         , "    WHERE q.status = 'picked'"
         , "      AND q.heartbeat < NOW() - INTERVAL '" <> T.pack (show heartbeatTimeoutSecs) <> " seconds'"
         , "      AND q.execute_after < NOW()"
-        , "      AND ($5::BIGINT IS NULL"
-        , "           OR (SELECT total FROM worker_load) < $5)"
+        , "      AND ((SELECT global_limit FROM runtime) IS NULL"
+        , "           OR (SELECT total FROM worker_load) < (SELECT global_limit FROM runtime))"
         , "    ORDER BY q.priority DESC, q.id ASC"
         , "    FOR UPDATE SKIP LOCKED"
-        , "    LIMIT $1"
+        , "    LIMIT (SELECT batch_size FROM runtime)"
         , "),"
         , "eligible AS ("
         , "    SELECT id FROM ("
@@ -191,14 +197,14 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
         , "        SELECT id, 1 AS src FROM next_stale"
         , "    ) combined"
         , "    ORDER BY src, id"
-        , "    LIMIT $1"
+        , "    LIMIT (SELECT batch_size FROM runtime)"
         , "),"
         , "claimed AS ("
         , "    UPDATE " <> queueTable settings
         , "    SET status = 'picked',"
         , "        updated   = NOW(),"
         , "        heartbeat = NOW(),"
-        , "        queue_manager_id = $4"
+        , "        queue_manager_id = (SELECT queue_manager_id FROM runtime)"
         , "    WHERE id IN (SELECT id FROM eligible)"
         , "    RETURNING *"
         , "),"
@@ -206,14 +212,16 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
         , "    INSERT INTO " <> queueTableLog settings <> " (job_id, status, entrypoint, priority)"
         , "    SELECT id, status, entrypoint, priority FROM claimed"
         , ")"
-        , "SELECT * FROM claimed ORDER BY priority DESC, id ASC"
+        , "SELECT id, priority, created, updated, heartbeat, execute_after, status::text AS status, entrypoint, payload, attempts, queue_manager_id, headers"
+        , "FROM claimed"
+        , "ORDER BY priority DESC, id ASC"
         ]
   query conn (textToQuery q)
     ( batchSize
-    , PGArray $ map (\(Entrypoint e) -> e) entrypoints
-    , PGArray concurrencyLimits
     , queueMgrId
     , globalLimit
+    , PGArray $ map (\(Entrypoint e) -> e) entrypoints
+    , PGArray concurrencyLimits
     )
 
 -- ============================================================================
@@ -234,9 +242,9 @@ logJobs conn settings jobStatuses = do
       q = T.unlines
         [ "WITH job_status AS ("
         , "    SELECT"
-        , "        UNNEST($1::integer[])   AS id,"
-        , "        UNNEST($2::" <> queueStatusType settings <> "[]) AS status,"
-        , "        UNNEST($3::JSONB[])     AS traceback"
+        , "        UNNEST(?::integer[])   AS id,"
+        , "        UNNEST(?::" <> queueStatusType settings <> "[]) AS status,"
+        , "        UNNEST(?::JSONB[])     AS traceback"
         , "), deleted AS ("
         , "    DELETE FROM " <> queueTable settings
         , "    WHERE id = ANY(SELECT js.id FROM job_status js WHERE js.status != 'failed')"
@@ -299,7 +307,7 @@ queuedWork conn settings entrypoints = do
       q = T.unlines
         [ "SELECT COUNT(*)"
         , "FROM " <> queueTable settings
-        , "WHERE entrypoint = ANY($1::text[])"
+        , "WHERE entrypoint = ANY(?::text[])"
         , "  AND status = 'queued'"
         ]
   result <- query conn (textToQuery q) (Only $ PGArray eps) :: IO [Only Int]
@@ -325,11 +333,11 @@ retryJob conn settings job delay _traceback = do
       q = T.unlines
         [ "UPDATE " <> queueTable settings
         , "SET status = 'queued',"
-        , "    execute_after = $1,"
-        , "    attempts = $2,"
+        , "    execute_after = ?,"
+        , "    attempts = ?,"
         , "    queue_manager_id = NULL,"
         , "    updated = NOW()"
-        , "WHERE id = $3"
+        , "WHERE id = ?"
         ]
   _ <- execute conn (textToQuery q) (newExecuteAfter, newAttempts, jobId job)
   return ()
@@ -342,7 +350,7 @@ requeueJobs conn settings jobIds = do
         , "SET status = 'queued',"
         , "    queue_manager_id = NULL,"
         , "    updated = NOW()"
-        , "WHERE id = ANY($1::integer[])"
+        , "WHERE id = ANY(?::integer[])"
         ]
   _ <- execute conn (textToQuery q) (Only $ PGArray jobIds)
   return ()
@@ -357,7 +365,7 @@ markJobAsCancelled conn settings jobIds = do
   let q = T.unlines
         [ "UPDATE " <> queueTable settings
         , "SET status = 'canceled', updated = NOW()"
-        , "WHERE id = ANY($1::integer[])"
+        , "WHERE id = ANY(?::integer[])"
         ]
   _ <- execute conn (textToQuery q) (Only $ PGArray jobIds)
   return ()
@@ -368,7 +376,7 @@ updateHeartbeat conn settings jobIds = do
   let q = T.unlines
         [ "UPDATE " <> queueTable settings
         , "SET heartbeat = NOW()"
-        , "WHERE id = ANY($1::integer[]) AND status = 'picked'"
+        , "WHERE id = ANY(?::integer[]) AND status = 'picked'"
         ]
   _ <- execute conn (textToQuery q) (Only $ PGArray jobIds)
   return ()
@@ -379,7 +387,7 @@ jobStatusById conn settings jobIds = do
   let q = T.unlines
         [ "SELECT id, status"
         , "FROM " <> queueTable settings
-        , "WHERE id = ANY($1::integer[])"
+        , "WHERE id = ANY(?::integer[])"
         ]
   query conn (textToQuery q) (Only $ PGArray jobIds) :: IO [(JobId, JobStatus)]
 
@@ -399,7 +407,7 @@ clearQueue conn settings mbEntrypoints = do
       let eps = map (\(Entrypoint e) -> e) entrypoints
           q = T.unlines
             [ "DELETE FROM " <> queueTable settings
-            , "WHERE entrypoint = ANY($1::text[])"
+            , "WHERE entrypoint = ANY(?::text[])"
             ]
       _ <- execute conn (textToQuery q) (Only $ PGArray eps)
       return ()
@@ -408,7 +416,7 @@ clearQueue conn settings mbEntrypoints = do
 listFailedJobs :: Connection -> DBSettings -> Int -> IO [Job]
 listFailedJobs conn settings limit = do
   let q = T.unlines
-        [ "SELECT *"
+        [ "SELECT id, priority, created, updated, heartbeat, execute_after, status::text AS status, entrypoint, payload, attempts, queue_manager_id, headers"
         , "FROM " <> queueTable settings
         , "WHERE status = 'failed'"
         , "ORDER BY updated DESC"

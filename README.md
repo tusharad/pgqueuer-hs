@@ -407,7 +407,6 @@ Not yet implemented:
 
 ## License
 
-Same license as pgqueuer (see LICENSE file).
 
 ## See Also
 
