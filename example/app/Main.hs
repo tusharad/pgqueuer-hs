@@ -64,9 +64,9 @@ combinedExample = do
     conn' <- connect defaultConnectInfo {
                 connectHost = "localhost",
                 connectPort =  5432,
-                connectUser = "pg_user",
-                connectPassword = "pg_pass",
-                connectDatabase = "pg_db"
+                connectUser = "queue_user",
+                connectPassword = "queue_pass",
+                connectDatabase = "queue_db"
             }
     qm <- createQueueManager conn' settings queueMgrId3
     processedCount <- processJobsWithTimeout 5 qm

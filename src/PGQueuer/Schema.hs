@@ -191,7 +191,10 @@ triggerFunctionSQL =
 triggerSQL :: T.Text
 triggerSQL =
   T.unlines
-    [ "CREATE TRIGGER IF NOT EXISTS pgqueuer_trigger"
-    , "AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON pgqueuer_queue"
+    [ "CREATE TRIGGER pgqueuer_trigger"
+    , "AFTER INSERT OR UPDATE OR DELETE ON pgqueuer_queue"
     , "FOR EACH ROW EXECUTE FUNCTION pgqueuer_notify_fn();"
+    , "CREATE TRIGGER pgqueuer_trigger_truncate"
+    , "AFTER TRUNCATE ON pgqueuer_queue"
+    , "FOR EACH STATEMENT EXECUTE FUNCTION pgqueuer_notify_fn();"
     ]
