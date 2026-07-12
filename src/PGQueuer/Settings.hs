@@ -15,18 +15,10 @@ module PGQueuer.Settings (
 import Data.Text (Text)
 import PGQueuer.Types (Channel, defaultChannel)
 
--- ============================================================================
--- Database settings
--- ============================================================================
-
 data DBSettings = DBSettings
     { dbPrefix :: Text
     , dbChannel :: Channel
     }
-
--- ============================================================================
--- Default settings
--- ============================================================================
 
 defaultDBSettings :: DBSettings
 defaultDBSettings =
@@ -34,10 +26,6 @@ defaultDBSettings =
         { dbPrefix = ""
         , dbChannel = defaultChannel
         }
-
--- ============================================================================
--- Table and other object names (with prefix support)
--- ============================================================================
 
 queueTable :: DBSettings -> Text
 queueTable settings = dbPrefix settings <> "pgqueuer"

@@ -1,24 +1,47 @@
+{- |
+Module      : PGQueuer
+Description : Main interface for the PGQueuer job queue ecosystem.
+Copyright   : (c) Tushar Adhatrao, 2026
+License     : MIT
+Maintainer  : tusharadhatrao@gmail.com
+Stability   : experimental
+
+This module provides the high-level API for interacting with PGQueuer.
+It re-exports essential types and settings required to configure,
+manage, and interact with the database-backed queue.
+-}
 module PGQueuer (
+    -- * Queue Manager
     QueueManager (..),
     createQueueManager,
+    withQueueManager,
+
+    -- * Entrypoint Management
     registerEntrypoint,
+
+    -- * Job Operations
     workerLoop,
     enqueue,
     enqueueMultiple,
     dequeue,
+    markJobAsCancelled,
+    requeueJobs,
+    retryJob,
+    updateHeartbeat,
     logJobs,
+
+    -- * Queue Statistics and Management
     getQueueSize,
     clearQueue,
     listFailedJobs,
     listJobStatusById,
-    markJobAsCancelled,
-    updateHeartbeat,
-    requeueJobs,
-    retryJob,
+
+    -- * Schema management
     verifyStructure,
     installSchema,
     uninstallSchema,
-    withQueueManager,
+
+    -- * Re-exported modules
     module PGQueuer.Types,
     module PGQueuer.Settings,
 ) where
@@ -41,15 +64,16 @@ import PGQueuer.Schema (install, uninstall, verifyStructure_)
 import PGQueuer.Settings
 import PGQueuer.Types
 
--- ============================================================================
--- Queue Manager
--- ============================================================================
-
+-- | Core state context for managing Queue.
 data QueueManager = QueueManager
     { qmConnection :: Connection
+    -- ^ Database connection
     , qmSettings :: DBSettings
+    -- ^ Database settings
     , qmEntrypoints :: Map Text EntrypointHandler
+    -- ^ Registered entrypoint handlers
     , qmQueueManagerId :: UUID
+    -- ^ Unique identifier for this QueueManager instance
     }
 
 -- | Entrypoint handler type
@@ -57,8 +81,11 @@ type EntrypointHandler = Job -> IO ()
 
 -- | Create a new QueueManager from a connection
 createQueueManager ::
+    -- | Database connection
     Connection ->
+    -- | Database settings
     DBSettings ->
+    -- | Unique identifier for this QueueManager instance
     UUID ->
     IO QueueManager
 createQueueManager conn settings queueMgrId = do
@@ -72,8 +99,11 @@ createQueueManager conn settings queueMgrId = do
 
 -- | Register an entrypoint handler
 registerEntrypoint ::
+    -- | QueueManager instance
     QueueManager ->
+    -- | Entrypoint to register
     Entrypoint ->
+    -- | Handler function for the entrypoint
     EntrypointHandler ->
     IO QueueManager
 registerEntrypoint qm (Entrypoint ep) handler = do
@@ -104,12 +134,19 @@ dispatchJob qm job =
 
 -- | Enqueue a single job
 enqueue ::
+    -- | QueueManager instance
     QueueManager ->
+    -- | Entrypoint for the job
     Entrypoint ->
+    -- | Optional payload for the job
     Maybe BL.ByteString ->
+    -- | Priority of the job
     Int ->
+    -- | Optional delay before the job can be executed
     Maybe NominalDiffTime ->
+    -- | Optional deduplication key for the job
     Maybe Text ->
+    -- | Optional headers for the job
     Maybe Value ->
     IO [JobId]
 enqueue qm =
@@ -119,12 +156,19 @@ enqueue qm =
 
 -- | Enqueue multiple jobs
 enqueueMultiple ::
+    -- | QueueManager instance
     QueueManager ->
+    -- | List of entrypoints for the jobs
     [Entrypoint] ->
+    -- | List of optional payloads for the jobs
     [Maybe BL.ByteString] ->
+    -- | List of priorities for the jobs
     [Int] ->
+    -- | List of optional delays before the jobs can be executed
     [Maybe NominalDiffTime] ->
+    -- | List of optional deduplication keys for the jobs
     [Maybe Text] ->
+    -- | List of optional headers for the jobs
     [Maybe Value] ->
     IO [JobId]
 enqueueMultiple qm =
@@ -134,10 +178,15 @@ enqueueMultiple qm =
 
 -- | Dequeue jobs
 dequeue ::
+    -- | QueueManager instance
     QueueManager ->
+    -- | Batch size for dequeuing jobs
     Int ->
+    -- | List of entrypoint execution parameters
     [EntrypointExecutionParameter] ->
+    -- | Optional maximum number of jobs to dequeue
     Maybe Int ->
+    -- | Heartbeat timeout in seconds
     Int ->
     IO [Job]
 dequeue qm batchSize params =
@@ -150,7 +199,9 @@ dequeue qm batchSize params =
 
 -- | Log job status changes
 logJobs ::
+    -- | QueueManager instance
     QueueManager ->
+    -- | List of job status changes with optional traceback
     [(JobId, JobStatus, Maybe Value)] ->
     IO ()
 logJobs qm =
@@ -162,7 +213,9 @@ getQueueSize qm = Q.queueSize (qmConnection qm) (qmSettings qm)
 
 -- | Clear the queue
 clearQueue ::
+    -- | QueueManager instance
     QueueManager ->
+    -- | Optional list of entrypoints to clear; if Nothing, clears all
     Maybe [Entrypoint] ->
     IO ()
 clearQueue qm = Q.clearQueue (qmConnection qm) (qmSettings qm)
@@ -209,9 +262,13 @@ uninstallSchema qm = uninstall (qmConnection qm) (qmSettings qm)
 
 -- | Run a QueueManager within a bracket (for resource safety)
 withQueueManager ::
+    -- | Connection string for PostgreSQL
     ByteString ->
+    -- | Database settings
     DBSettings ->
+    -- | Unique identifier for this QueueManager instance
     UUID ->
+    -- | Action to run with the QueueManager
     (QueueManager -> IO a) ->
     IO a
 withQueueManager connStr settings queueMgrId action = do

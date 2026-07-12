@@ -13,10 +13,6 @@ import qualified Database.PostgreSQL.Simple as PG
 import Database.PostgreSQL.Simple.Types (Only (..))
 import PGQueuer.Settings
 
--- ============================================================================
--- Schema installation and management
--- ============================================================================
-
 -- | Install the schema in the database
 install :: Connection -> DBSettings -> IO ()
 install conn _settings = do
@@ -49,16 +45,8 @@ verifyStructure_ conn _settings = do
         [Only True] -> return $ Right ()
         _ -> return $ Left "Queue table is missing. Please run 'pgqueuer install' to set up the schema."
 
--- ============================================================================
--- Helper functions
--- ============================================================================
-
 textToQuery :: T.Text -> PG.Query
 textToQuery = fromString . T.unpack
-
--- ============================================================================
--- SQL Definitions
--- ============================================================================
 
 queueTableSQL :: T.Text
 queueTableSQL =

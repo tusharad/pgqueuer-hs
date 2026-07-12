@@ -5,7 +5,7 @@ cabal-version: 1.12
 -- see: https://github.com/sol/hpack
 
 name:           pgqueuer-hs
-version:        0.1.0.0
+version:        0.0.1.0
 description:    Please see the README on GitHub at <https://github.com/githubuser/pgqueuer-hs#readme>
 homepage:       https://github.com/tusharad/pgqueuer-hs#readme
 bug-reports:    https://github.com/tusharad/pgqueuer-hs/issues
