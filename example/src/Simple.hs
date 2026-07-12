@@ -40,7 +40,6 @@ runApp = do
     putStrLn "Installing schema..."
     eInstalled <- verifyStructure qm1
     when (isLeft eInstalled) (installSchema qm1)
-    installSchema qm1
     putStrLn "Schema installed"
 
     -- Producer thread

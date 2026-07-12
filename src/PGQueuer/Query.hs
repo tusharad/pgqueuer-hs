@@ -29,16 +29,8 @@ import PGQueuer.Types
 
 import qualified Data.Text as T
 
--- ============================================================================
--- Helper functions
--- ============================================================================
-
 textToQuery :: Text -> Query
 textToQuery = Query . TE.encodeUtf8
-
--- ============================================================================
--- Enqueue operations
--- ============================================================================
 
 -- | Enqueue a single job
 enqueueSingle ::
@@ -115,10 +107,6 @@ enqueueMultiple conn settings entrypoints payloads priorities executeAfters dedu
             IO [Only JobId]
 
     return $ map fromOnly result
-
--- ============================================================================
--- Dequeue operations
--- ============================================================================
 
 -- | Dequeue jobs respecting concurrency limits
 dequeue ::
@@ -238,10 +226,6 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
         , PGArray concurrencyLimits
         )
 
--- ============================================================================
--- Log operations
--- ============================================================================
-
 -- | Log job completions and status changes
 logJobs ::
     Connection ->
@@ -296,10 +280,6 @@ logJobs conn settings jobStatuses = do
     _ <- execute conn (textToQuery q) (PGArray jobIds, PGArray statuses, PGArray tracebacks)
     return ()
 
--- ============================================================================
--- Queue status operations
--- ============================================================================
-
 -- | Get queue size statistics
 queueSize :: Connection -> DBSettings -> IO [QueueStatistics]
 queueSize conn settings = do
@@ -331,10 +311,6 @@ queuedWork conn settings entrypoints = do
     case result of
         [Only count] -> return count
         _ -> return 0
-
--- ============================================================================
--- Retry operations
--- ============================================================================
 
 -- | Retry a failed job
 retryJob ::
@@ -374,10 +350,6 @@ requeueJobs conn settings jobIds = do
     _ <- execute conn (textToQuery q) (Only $ PGArray jobIds)
     return ()
 
--- ============================================================================
--- Job status operations
--- ============================================================================
-
 -- | Mark jobs as cancelled
 markJobAsCancelled :: Connection -> DBSettings -> [JobId] -> IO ()
 markJobAsCancelled conn settings jobIds = do
@@ -412,10 +384,6 @@ jobStatusById conn settings jobIds = do
                 , "WHERE id = ANY(?::integer[])"
                 ]
     query conn (textToQuery q) (Only $ PGArray jobIds) :: IO [(JobId, JobStatus)]
-
--- ============================================================================
--- Cleanup operations
--- ============================================================================
 
 -- | Clear entire queue or by entrypoint
 clearQueue :: Connection -> DBSettings -> Maybe [Entrypoint] -> IO ()

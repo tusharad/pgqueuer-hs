@@ -32,9 +32,6 @@ import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Database.PostgreSQL.Simple.ToField (ToField (..))
 import GHC.Generics (Generic)
 
--- ============================================================================
--- Type aliases and newtypes for safety
--- ============================================================================
 newtype JobId = JobId Int
     deriving stock (Show, Eq, Ord, Generic)
     deriving newtype (FromField, ToField)
@@ -54,10 +51,6 @@ newtype CronExpression = CronExpression Text
 newtype Channel = Channel Text
     deriving stock (Show, Eq, Ord, Generic)
     deriving newtype (FromField, ToField)
-
--- ============================================================================
--- Job Status type
--- ============================================================================
 
 data JobStatus
     = Queued
@@ -94,34 +87,12 @@ instance FromField JobStatus where
 instance ToField JobStatus where
     toField = toField . jobStatusToText
 
--- ============================================================================
--- Database Operation type
--- ============================================================================
-
 data Operation
     = Insert
     | Update
     | Delete
     | Truncate
     deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
-
-{-
-operationToText :: Operation -> Text
-operationToText Insert = "insert"
-operationToText Update = "update"
-operationToText Delete = "delete"
-operationToText Truncate = "truncate"
-
-textToOperation :: Text -> Maybe Operation
-textToOperation "insert" = Just Insert
-textToOperation "update" = Just Update
-textToOperation "delete" = Just Delete
-textToOperation "truncate" = Just Truncate
-textToOperation _ = Nothing
--}
--- ============================================================================
--- Event types
--- ============================================================================
 
 data Event
     = TableChangedEvent
@@ -142,10 +113,6 @@ data Event
         }
     deriving stock (Show, Generic)
 
--- ============================================================================
--- Job type
--- ============================================================================
-
 data Job = Job
     { jobId :: JobId
     , jobPriority :: Int
@@ -162,10 +129,6 @@ data Job = Job
     }
     deriving stock (Show, Eq, Generic)
 
--- ============================================================================
--- Log entry type
--- ============================================================================
-
 data LogEntry = LogEntry
     { logCreated :: UTCTime
     , logJobId :: JobId
@@ -177,10 +140,6 @@ data LogEntry = LogEntry
     }
     deriving stock (Show, Eq, Generic)
 
--- ============================================================================
--- Queue statistics type
--- ============================================================================
-
 data QueueStatistics = QueueStatistics
     { statsCount :: Int
     , statsEntrypoint :: Entrypoint
@@ -188,10 +147,6 @@ data QueueStatistics = QueueStatistics
     , statsStatus :: JobStatus
     }
     deriving stock (Show, Eq, Generic)
-
--- ============================================================================
--- Log statistics type
--- ============================================================================
 
 data LogStatistics = LogStatistics
     { logStatsCount :: Int
@@ -201,10 +156,6 @@ data LogStatistics = LogStatistics
     , logStatsStatus :: JobStatus
     }
     deriving stock (Show, Eq, Generic)
-
--- ============================================================================
--- Schedule type
--- ============================================================================
 
 data Schedule = Schedule
     { scheduleId :: ScheduleId
@@ -219,10 +170,6 @@ data Schedule = Schedule
     }
     deriving stock (Show, Eq, Generic)
 
--- ============================================================================
--- Traceback record
--- ============================================================================
-
 data TracebackRecord = TracebackRecord
     { traceJobId :: JobId
     , traceTimestamp :: UTCTime
@@ -231,10 +178,6 @@ data TracebackRecord = TracebackRecord
     , traceTraceback :: Text
     }
     deriving stock (Show, Eq, Generic)
-
--- ============================================================================
--- On failure policy
--- ============================================================================
 
 data OnFailure
     = OnDelete
@@ -250,19 +193,11 @@ textToOnFailure "delete" = Just OnDelete
 textToOnFailure "hold" = Just OnHold
 textToOnFailure _ = Nothing
 
--- ============================================================================
--- Entrypoint execution parameter
--- ============================================================================
-
 data EntrypointExecutionParameter = EntrypointExecutionParameter
     { paramEntrypoint :: Entrypoint
     , paramConcurrencyLimit :: Int
     }
     deriving stock (Show, Eq, Generic)
-
--- ============================================================================
--- Default values
--- ============================================================================
 
 defaultChannel :: Channel
 defaultChannel = Channel "ch_pgqueuer"
@@ -272,10 +207,6 @@ defaultBatchSize = 100
 
 defaultHeartbeatTimeout :: Int
 defaultHeartbeatTimeout = 300 -- 5 minutes in seconds
-
--- ============================================================================
--- FromRow instances for database records
--- ============================================================================
 
 instance FromRow Job where
     fromRow =

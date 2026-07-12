@@ -1,5 +1,5 @@
 name:                pgqueuer-hs
-version:             0.1.0.0
+version:             0.0.1.0
 github:              "tusharad/pgqueuer-hs"
 license:             MIT
 author:              "Tushar Adhatrao"
@@ -17,22 +17,17 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/githubuser/pgqueuer-hs#readme>
+description:         Please see the README on GitHub at <https://github.com/tusharad/pgqueuer-hs#readme>
 
 dependencies:
 - base >= 4.7 && < 5
-- bytestring
-- postgresql-simple >= 0.7
-- aeson
-- text
-- time
-- uuid
-- containers
-- mtl
-- exceptions
-- async
-- stm
-- unix
+- aeson >= 2.0 && < 3
+- bytestring >= 0.10.4.0 && < 0.13
+- containers >= 0.6 && < 0.8
+- postgresql-simple >= 0.7 && < 0.9
+- text >= 1.2 && < 3
+- time >= 1.9 && < 2
+- uuid >= 1.3 && < 2
 
 ghc-options:
 - -Wall
@@ -58,5 +53,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - pgqueuer-hs
-    - tasty-hunit
-    - tasty
+    - tasty >= 1.4 && < 2
+    - tasty-hunit >= 0.10 && < 1
