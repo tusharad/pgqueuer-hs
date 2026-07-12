@@ -9,4 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: setup db
+        run: |
+          ./example/start-db.sh
       - uses: freckle/stack-action@v5
