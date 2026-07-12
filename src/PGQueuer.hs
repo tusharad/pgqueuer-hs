@@ -11,6 +11,7 @@ module PGQueuer
   , getQueueSize
   , clearQueue
   , listFailedJobs
+  , listJobStatusById
   , markJobAsCancelled
   , updateHeartbeat
   , requeueJobs
@@ -163,6 +164,10 @@ clearQueue qm eps = Q.clearQueue (qmConnection qm) (qmSettings qm) eps
 -- | List failed jobs
 listFailedJobs :: QueueManager -> Int -> IO [Job]
 listFailedJobs qm limit = Q.listFailedJobs (qmConnection qm) (qmSettings qm) limit
+
+-- | List Job status by Id
+listJobStatusById :: QueueManager -> [JobId] -> IO [(JobId, JobStatus)]
+listJobStatusById qm jobIds = Q.jobStatusById (qmConnection qm) (qmSettings qm) jobIds
 
 -- | Mark jobs as cancelled
 markJobAsCancelled :: QueueManager -> [JobId] -> IO ()
