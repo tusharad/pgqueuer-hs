@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Tests.PGQueuer (runTests) where
@@ -5,30 +7,14 @@ module Tests.PGQueuer (runTests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Data.Aeson
+import qualified Data.ByteString as BS
 import Data.Either (isLeft, isRight)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.UUID.V4 (nextRandom)
+import GHC.Generics
 import PGQueuer
-
-{-
-Each test happens within a transaction where a DB gets created and at the end gets killed.
-
-1. Schema installation:
-        installSchema installs schema [x]
-        uninstallSchema uninstall schema [x]
-        installing schema twice throws error TODO: later
-2. QueueManager creates queue # Already is covered by other cases
-3. Registering an entrypoint, registers and entrypoint. Registering again updates [x]
-4. Enqueuing single and multiple works [x]
-5. Dequeuing works. Updates entry in table [x]
-6. Log works [x]
-7. GetQueueSize and clearQueue works
-8. List failed jobs, mark job as cancelled, requeue, retry jobs
-9. Pass large json payload
-10. Multiple entries are enqueued and dequeued seamlessly
-11. MarkJobAsCancelled, UpdateHeartBeat
--}
 
 runTests :: IO ()
 runTests =
@@ -41,6 +27,7 @@ runTests =
             , enqueueDequeueJobs
             , enqueueDequeueMultipleJobs
             , logAndListJobs
+            , roundTripJSONPayload
             ]
 
 withFreshQueue :: (QueueManager -> IO a) -> IO a
@@ -175,3 +162,27 @@ logAndListJobs =
                     remaining <- getQueueSize qm1
                     assertBool "queue should be empty after clearQueue" (null remaining)
                 _ -> assertFailure "There should be exactly two picked jobs"
+
+data BasicType = BasicType
+    { name :: String
+    , age :: Int
+    }
+    deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+roundTripJSONPayload :: TestTree
+roundTripJSONPayload = do
+    testCase "Enqueue jobs should have entry in PGQ table" $ do
+        withFreshQueue $ \qm -> do
+            let ep = Entrypoint "hello"
+            let params = [EntrypointExecutionParameter ep 0]
+            qm1 <- registerEntrypoint qm ep (\_ -> pure ())
+            let payload = encode $ BasicType "Hello" 25
+            _ <- enqueue qm1 ep (Just (BS.toStrict payload)) 0 Nothing Nothing Nothing
+
+            pickedJobs <- dequeue qm1 20 params Nothing 3
+            expectOne "pickup job lookup failed" pickedJobs $ \job ->
+                case decodeStrict (fromMaybe "{}" $ jobPayload job) of
+                    Nothing -> assertFailure "decoding of payload failed"
+                    Just x -> do
+                        assertEqual "round trip name" "Hello" (name x)
+                        assertEqual "round trip name" 25 (age x)
