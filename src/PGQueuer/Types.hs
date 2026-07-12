@@ -4,15 +4,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module PGQueuer.Types (
-    JobId(..),
-    ScheduleId(..),
-    Entrypoint(..),
-    Channel(..),
-    EntrypointExecutionParameter(..),
-    Job(..),
-    JobStatus(..),
-    QueueStatistics(..),
-    OnFailure(..),
+    JobId (..),
+    ScheduleId (..),
+    Entrypoint (..),
+    Channel (..),
+    EntrypointExecutionParameter (..),
+    Job (..),
+    JobStatus (..),
+    QueueStatistics (..),
+    OnFailure (..),
     onFailureToText,
     textToOnFailure,
     defaultHeartbeatTimeout,
@@ -23,51 +23,51 @@ module PGQueuer.Types (
 
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.UUID (UUID)
 import Database.PostgreSQL.Simple.FromField (FromField (..))
-import Database.PostgreSQL.Simple.ToField (ToField (..))
-import Data.Maybe (fromMaybe)
-import GHC.Generics (Generic)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
+import Database.PostgreSQL.Simple.ToField (ToField (..))
+import GHC.Generics (Generic)
 
 -- ============================================================================
 -- Type aliases and newtypes for safety
 -- ============================================================================
 newtype JobId = JobId Int
-  deriving stock (Show, Eq, Ord, Generic)
-  deriving newtype (FromField, ToField)
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving newtype (FromField, ToField)
 
 newtype ScheduleId = ScheduleId Int
-  deriving stock (Show, Eq, Ord, Generic)
-  deriving newtype (FromField, ToField)
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving newtype (FromField, ToField)
 
 newtype Entrypoint = Entrypoint Text
-  deriving stock (Show, Eq, Ord, Generic)
-  deriving newtype (FromField, ToField)
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving newtype (FromField, ToField)
 
 newtype CronExpression = CronExpression Text
-  deriving stock (Show, Eq, Ord, Generic)
-  deriving newtype (FromField, ToField)
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving newtype (FromField, ToField)
 
 newtype Channel = Channel Text
-  deriving stock (Show, Eq, Ord, Generic)
-  deriving newtype (FromField, ToField)
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving newtype (FromField, ToField)
 
 -- ============================================================================
 -- Job Status type
 -- ============================================================================
 
 data JobStatus
-  = Queued
-  | Picked
-  | Successful
-  | Failed
-  | Exception
-  | Canceled
-  | Deleted
-  deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
+    = Queued
+    | Picked
+    | Successful
+    | Failed
+    | Exception
+    | Canceled
+    | Deleted
+    deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
 
 jobStatusToText :: JobStatus -> Text
 jobStatusToText Queued = "queued"
@@ -89,23 +89,23 @@ textToJobStatus "deleted" = Just Deleted
 textToJobStatus _ = Nothing
 
 instance FromField JobStatus where
-  fromField f v = fromField f v >>= \t -> return (fromMaybe Queued (textToJobStatus t))
+    fromField f v = fromField f v >>= \t -> return (fromMaybe Queued (textToJobStatus t))
 
 instance ToField JobStatus where
-  toField = toField . jobStatusToText
+    toField = toField . jobStatusToText
 
 -- ============================================================================
 -- Database Operation type
 -- ============================================================================
 
 data Operation
-  = Insert
-  | Update
-  | Delete
-  | Truncate
-  deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
+    = Insert
+    | Update
+    | Delete
+    | Truncate
+    deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
 
-    {-
+{-
 operationToText :: Operation -> Text
 operationToText Insert = "insert"
 operationToText Update = "update"
@@ -124,122 +124,122 @@ textToOperation _ = Nothing
 -- ============================================================================
 
 data Event
-  = TableChangedEvent
-      { eventChannel :: Channel
-      , eventSentAt :: UTCTime
-      , eventOperation :: Operation
-      , eventTable :: Text
-      }
-  | CancellationEvent
-      { eventChannel :: Channel
-      , eventSentAt :: UTCTime
-      , eventIds :: [JobId]
-      }
-  | HealthCheckEvent
-      { eventChannel :: Channel
-      , eventSentAt :: UTCTime
-      , eventId :: UUID
-      }
-  deriving stock (Show, Generic)
+    = TableChangedEvent
+        { eventChannel :: Channel
+        , eventSentAt :: UTCTime
+        , eventOperation :: Operation
+        , eventTable :: Text
+        }
+    | CancellationEvent
+        { eventChannel :: Channel
+        , eventSentAt :: UTCTime
+        , eventIds :: [JobId]
+        }
+    | HealthCheckEvent
+        { eventChannel :: Channel
+        , eventSentAt :: UTCTime
+        , eventId :: UUID
+        }
+    deriving stock (Show, Generic)
 
 -- ============================================================================
 -- Job type
 -- ============================================================================
 
 data Job = Job
-  { jobId :: JobId
-  , jobPriority :: Int
-  , jobCreated :: UTCTime
-  , jobUpdated :: UTCTime
-  , jobHeartbeat :: UTCTime
-  , jobExecuteAfter :: UTCTime
-  , jobStatus :: JobStatus
-  , jobEntrypoint :: Entrypoint
-  , jobPayload :: Maybe ByteString
-  , jobAttempts :: Int
-  , jobQueueManagerId :: Maybe UUID
-  , jobHeaders :: Maybe Value
-  }
-  deriving stock (Show, Eq, Generic)
+    { jobId :: JobId
+    , jobPriority :: Int
+    , jobCreated :: UTCTime
+    , jobUpdated :: UTCTime
+    , jobHeartbeat :: UTCTime
+    , jobExecuteAfter :: UTCTime
+    , jobStatus :: JobStatus
+    , jobEntrypoint :: Entrypoint
+    , jobPayload :: Maybe ByteString
+    , jobAttempts :: Int
+    , jobQueueManagerId :: Maybe UUID
+    , jobHeaders :: Maybe Value
+    }
+    deriving stock (Show, Eq, Generic)
 
 -- ============================================================================
 -- Log entry type
 -- ============================================================================
 
 data LogEntry = LogEntry
-  { logCreated :: UTCTime
-  , logJobId :: JobId
-  , logStatus :: JobStatus
-  , logPriority :: Int
-  , logEntrypoint :: Entrypoint
-  , logTraceback :: Maybe Value
-  , logAggregated :: Bool
-  }
-  deriving stock (Show, Eq, Generic)
+    { logCreated :: UTCTime
+    , logJobId :: JobId
+    , logStatus :: JobStatus
+    , logPriority :: Int
+    , logEntrypoint :: Entrypoint
+    , logTraceback :: Maybe Value
+    , logAggregated :: Bool
+    }
+    deriving stock (Show, Eq, Generic)
 
 -- ============================================================================
 -- Queue statistics type
 -- ============================================================================
 
 data QueueStatistics = QueueStatistics
-  { statsCount :: Int
-  , statsEntrypoint :: Entrypoint
-  , statsPriority :: Int
-  , statsStatus :: JobStatus
-  }
-  deriving stock (Show, Eq, Generic)
+    { statsCount :: Int
+    , statsEntrypoint :: Entrypoint
+    , statsPriority :: Int
+    , statsStatus :: JobStatus
+    }
+    deriving stock (Show, Eq, Generic)
 
 -- ============================================================================
 -- Log statistics type
 -- ============================================================================
 
 data LogStatistics = LogStatistics
-  { logStatsCount :: Int
-  , logStatsCreated :: UTCTime
-  , logStatsEntrypoint :: Entrypoint
-  , logStatsPriority :: Int
-  , logStatsStatus :: JobStatus
-  }
-  deriving stock (Show, Eq, Generic)
+    { logStatsCount :: Int
+    , logStatsCreated :: UTCTime
+    , logStatsEntrypoint :: Entrypoint
+    , logStatsPriority :: Int
+    , logStatsStatus :: JobStatus
+    }
+    deriving stock (Show, Eq, Generic)
 
 -- ============================================================================
 -- Schedule type
 -- ============================================================================
 
 data Schedule = Schedule
-  { scheduleId :: ScheduleId
-  , scheduleExpression :: CronExpression
-  , scheduleEntrypoint :: Entrypoint
-  , scheduleHeartbeat :: UTCTime
-  , scheduleCreated :: UTCTime
-  , scheduleUpdated :: UTCTime
-  , scheduleNextRun :: UTCTime
-  , scheduleLastRun :: Maybe UTCTime
-  , scheduleStatus :: JobStatus
-  }
-  deriving stock (Show, Eq, Generic)
+    { scheduleId :: ScheduleId
+    , scheduleExpression :: CronExpression
+    , scheduleEntrypoint :: Entrypoint
+    , scheduleHeartbeat :: UTCTime
+    , scheduleCreated :: UTCTime
+    , scheduleUpdated :: UTCTime
+    , scheduleNextRun :: UTCTime
+    , scheduleLastRun :: Maybe UTCTime
+    , scheduleStatus :: JobStatus
+    }
+    deriving stock (Show, Eq, Generic)
 
 -- ============================================================================
 -- Traceback record
 -- ============================================================================
 
 data TracebackRecord = TracebackRecord
-  { traceJobId :: JobId
-  , traceTimestamp :: UTCTime
-  , traceExceptionType :: Text
-  , traceExceptionMessage :: Text
-  , traceTraceback :: Text
-  }
-  deriving stock (Show, Eq, Generic)
+    { traceJobId :: JobId
+    , traceTimestamp :: UTCTime
+    , traceExceptionType :: Text
+    , traceExceptionMessage :: Text
+    , traceTraceback :: Text
+    }
+    deriving stock (Show, Eq, Generic)
 
 -- ============================================================================
 -- On failure policy
 -- ============================================================================
 
 data OnFailure
-  = OnDelete
-  | OnHold
-  deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
+    = OnDelete
+    | OnHold
+    deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
 
 onFailureToText :: OnFailure -> Text
 onFailureToText OnDelete = "delete"
@@ -255,10 +255,10 @@ textToOnFailure _ = Nothing
 -- ============================================================================
 
 data EntrypointExecutionParameter = EntrypointExecutionParameter
-  { paramEntrypoint :: Entrypoint
-  , paramConcurrencyLimit :: Int
-  }
-  deriving stock (Show, Eq, Generic)
+    { paramEntrypoint :: Entrypoint
+    , paramConcurrencyLimit :: Int
+    }
+    deriving stock (Show, Eq, Generic)
 
 -- ============================================================================
 -- Default values
@@ -278,53 +278,58 @@ defaultHeartbeatTimeout = 300 -- 5 minutes in seconds
 -- ============================================================================
 
 instance FromRow Job where
-  fromRow = Job
-    <$> field  -- jobId
-    <*> field  -- jobPriority
-    <*> field  -- jobCreated
-    <*> field  -- jobUpdated
-    <*> field  -- jobHeartbeat
-    <*> field  -- jobExecuteAfter
-    <*> field  -- jobStatus
-    <*> field  -- jobEntrypoint
-    <*> field  -- jobPayload
-    <*> field  -- jobAttempts
-    <*> field  -- jobQueueManagerId
-    <*> field  -- jobHeaders
+    fromRow =
+        Job
+            <$> field -- jobId
+            <*> field -- jobPriority
+            <*> field -- jobCreated
+            <*> field -- jobUpdated
+            <*> field -- jobHeartbeat
+            <*> field -- jobExecuteAfter
+            <*> field -- jobStatus
+            <*> field -- jobEntrypoint
+            <*> field -- jobPayload
+            <*> field -- jobAttempts
+            <*> field -- jobQueueManagerId
+            <*> field -- jobHeaders
 
 instance FromRow LogEntry where
-  fromRow = LogEntry
-    <$> field  -- logCreated
-    <*> field  -- logJobId
-    <*> field  -- logStatus
-    <*> field  -- logPriority
-    <*> field  -- logEntrypoint
-    <*> field  -- logTraceback
-    <*> field  -- logAggregated
+    fromRow =
+        LogEntry
+            <$> field -- logCreated
+            <*> field -- logJobId
+            <*> field -- logStatus
+            <*> field -- logPriority
+            <*> field -- logEntrypoint
+            <*> field -- logTraceback
+            <*> field -- logAggregated
 
 instance FromRow QueueStatistics where
-  fromRow = QueueStatistics
-    <$> field  -- statsCount
-    <*> field  -- statsEntrypoint
-    <*> field  -- statsPriority
-    <*> field  -- statsStatus
+    fromRow =
+        QueueStatistics
+            <$> field -- statsCount
+            <*> field -- statsEntrypoint
+            <*> field -- statsPriority
+            <*> field -- statsStatus
 
 instance FromRow LogStatistics where
-  fromRow = LogStatistics
-    <$> field  -- logStatsCount
-    <*> field  -- logStatsCreated
-    <*> field  -- logStatsEntrypoint
-    <*> field  -- logStatsPriority
-    <*> field  -- logStatsStatus
+    fromRow =
+        LogStatistics
+            <$> field -- logStatsCount
+            <*> field -- logStatsCreated
+            <*> field -- logStatsEntrypoint
+            <*> field -- logStatsPriority
+            <*> field -- logStatsStatus
 
 instance FromRow Schedule where
-  fromRow = Schedule
-    <$> field  -- scheduleId
-    <*> field  -- scheduleExpression
-    <*> field  -- scheduleEntrypoint
-    <*> field  -- scheduleHeartbeat
-    <*> field  -- scheduleCreated
-    <*> field  -- scheduleUpdated
-    <*> field  -- scheduleNextRun
-    <*> field  -- scheduleLastRun
-    <*> field  -- scheduleStatus
+    fromRow =
+        Schedule
+            <$> field -- scheduleId
+            <*> field -- scheduleExpression
+            <*> field -- scheduleEntrypoint
+            <*> field -- scheduleHeartbeat
+            <*> field -- scheduleCreated
+            <*> field -- scheduleUpdated
+            <*> field -- scheduleNextRun
+            <*> field -- scheduleLastRun
+            <*> field -- scheduleStatus

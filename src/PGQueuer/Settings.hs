@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module PGQueuer.Settings (
-    DBSettings(..),
+    DBSettings (..),
     defaultDBSettings,
     queueTable,
     queueTableLog,
@@ -9,7 +9,7 @@ module PGQueuer.Settings (
     schedulesTable,
     queueStatusType,
     function,
-    trigger
+    trigger,
 ) where
 
 import Data.Text (Text)
@@ -20,9 +20,9 @@ import PGQueuer.Types (Channel, defaultChannel)
 -- ============================================================================
 
 data DBSettings = DBSettings
-  { dbPrefix :: Text
-  , dbChannel :: Channel
-  }
+    { dbPrefix :: Text
+    , dbChannel :: Channel
+    }
 
 -- ============================================================================
 -- Default settings
@@ -30,10 +30,10 @@ data DBSettings = DBSettings
 
 defaultDBSettings :: DBSettings
 defaultDBSettings =
-  DBSettings
-    { dbPrefix = ""
-    , dbChannel = defaultChannel
-    }
+    DBSettings
+        { dbPrefix = ""
+        , dbChannel = defaultChannel
+        }
 
 -- ============================================================================
 -- Table and other object names (with prefix support)
