@@ -26,61 +26,86 @@ Your PostgreSQL database is already a job queue.
 
 The Haskell port uses the **exact same schema** as Python pgqueuer:
 
-### Tables
-
-- **pgqueuer**: Main job table
-  - `id`: Job ID (SERIAL PRIMARY KEY)
-  - `priority`: Job priority (INT)
-  - `status`: Job status (ENUM: queued, picked, successful, exception, canceled, deleted, failed)
-  - `entrypoint`: Job handler name (TEXT)
-  - `payload`: Job data (BYTEA)
-  - `execute_after`: Scheduled execution time (TIMESTAMP WITH TIME ZONE)
-  - `dedupe_key`: Deduplication key (TEXT, optional)
-  - `headers`: JSON headers (JSONB)
-  - `attempts`: Attempt count (INT)
-  - `queue_manager_id`: Worker ID (UUID)
-  - `created`, `updated`, `heartbeat`: Timestamps
-
-- **pgqueuer_log**: Job event log
-  - `job_id`: Reference to queue.id
-  - `status`: Status at the time of log entry
-  - `traceback`: Exception details (JSONB)
-  - `aggregated`: For log compaction (BOOLEAN)
-
-- **pgqueuer_statistics**: Processing statistics
-- **pgqueuer_schedules**: Cron-based job scheduling
-
-### Indexes
-
-Optimized indexes on:
-- `(priority DESC, id ASC)` - For priority-based dequeue
-- `(entrypoint, priority DESC, id ASC)` - Per-entrypoint selection
-- `(entrypoint, execute_after)` - For deferred jobs
-- `(queue_manager_id)` - For worker heartbeats
-- Unique index on `(dedupe_key)` for active jobs only
-
 ## Examples
 
 Fully working examples are available in `./example` directory
 
 ## Installation
 
-### Prerequisites
+Add `pgqueuer-hs` to your `package.yaml` or `project.cabal` dependencies:
 
-- PostgreSQL 12+
-- GHC 9.2+
-- Cabal 3.4+ or Stack 2.7+
-- `libpq-dev` (PostgreSQL client library)
+```yaml
+dependencies:
+  - pgqueuer-hs
+  - postgresql-simple
+  - uuid
+  - time
+  - text
+  - aeson
 
-### Build from Source
+## Quick start
 
-```bash
-cd pgqueuer-hs
-stack build
+Install schema if not installed.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+import Data.UUID.V4 (nextRandom)
+import PGQueuer
+import Data.Either (isLeft)
+import Data.UUID.V4 (nextRandom)
+
+main :: IO ()
+main = do
+    let conStr = "postgresql://queue_user:queue_pass@localhost:5432/queue_db"
+    queueMgrId <- nextRandom
+    withQueueManager conStr defaultDBSettings queueMgrId $ \qm -> do
+        -- setup schema
+        eInstalled <- verifyStructure qm
+        when (isLeft eInstalled) (installSchema qm)
+
+        -- Enqueue a job
+        let ep = Entrypoint "hello"
+        let params = [EntrypointExecutionParameter ep 0]
+        qm1 <- registerEntrypoint qm ep (\_ -> pure ())
+        _ <- enqueue qm1 ep Nothing 0 Nothing Nothing Nothing
+
+        -- Dequeue jobs
+        pickedJobs <- dequeue qm1 20 params Nothing 3
+        mapM_ (\job -> jobStatus job) pickedJobs
 ```
+
+## Core Concepts
+### Architecture
+
+PGQueuer creates a self-contained ecosystem within your PostgreSQL database:
+  1. pgqueuer table: The primary ledger for active jobs (status: queued, picked).
+  2. pgqueuer_log table: An unlogged table used for fast, high-volume event logging of job state transitions.
+  3. pgqueuer_statistics table: Aggregates queue throughput and metrics.
+  4. pgqueuer_schedules table: Manages cron-like recurring jobs and future executions.
+  
+  Database Triggers: Automatically emit pub/sub notifications via fn_pgqueuer_changed when queue states mutate.
+
+### Status Lifecycle
+
+- Jobs transition through various states defined by JobStatus:
+- Queued - Waiting for a worker.
+- Picked - Claimed by a worker (protected by a heartbeat timeout).
+- Successful - Completed without errors.
+- Failed / Exception - Encountered an error (eligible for retry).
+- Canceled / Deleted - Terminated or scrubbed.
+
+> [!IMPORTANT]  
+> Codebase is currently highly unstable.
+
+## Notes
+
+- Postgresql-simple is currently being used as the primary database driver. In the future, adapter drivers will be implemented.
+- Scheduling is not supported right now.
 
 ## License
 
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## See Also
 
