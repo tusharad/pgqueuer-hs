@@ -105,20 +105,6 @@ data Operation
     | Truncate
     deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
 
-{-
-operationToText :: Operation -> Text
-operationToText Insert = "insert"
-operationToText Update = "update"
-operationToText Delete = "delete"
-operationToText Truncate = "truncate"
-
-textToOperation :: Text -> Maybe Operation
-textToOperation "insert" = Just Insert
-textToOperation "update" = Just Update
-textToOperation "delete" = Just Delete
-textToOperation "truncate" = Just Truncate
-textToOperation _ = Nothing
--}
 -- ============================================================================
 -- Event types
 -- ============================================================================

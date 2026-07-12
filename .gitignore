@@ -1,2 +1,4 @@
 .stack-work/
 *~
+collect_code.sh
+code.txt

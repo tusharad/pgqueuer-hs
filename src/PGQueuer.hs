@@ -2,6 +2,7 @@ module PGQueuer (
     QueueManager (..),
     createQueueManager,
     registerEntrypoint,
+    workerLoop,
     enqueue,
     enqueueMultiple,
     dequeue,
@@ -22,7 +23,9 @@ module PGQueuer (
     module PGQueuer.Settings,
 ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
+import Control.Monad (forever)
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
@@ -78,6 +81,22 @@ registerEntrypoint qm (Entrypoint ep) handler = do
         qm
             { qmEntrypoints = Map.insert ep handler (qmEntrypoints qm)
             }
+
+-- | Continuously dequeue jobs and dispatch them to registered handlers.
+workerLoop :: QueueManager -> [EntrypointExecutionParameter] -> IO ()
+workerLoop qm params = forever $ do
+    jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
+    if null jobs
+        then threadDelay 1000000
+        else mapM_ (dispatchJob qm) jobs
+
+dispatchJob :: QueueManager -> Job -> IO ()
+dispatchJob qm job =
+    case Map.lookup entrypointName (qmEntrypoints qm) of
+        Nothing -> fail $ "No handler registered for entrypoint: " ++ show entrypointName
+        Just handler -> handler job
+  where
+    Entrypoint entrypointName = jobEntrypoint job
 
 -- ============================================================================
 -- Queue operations (wrappers around Query module)
