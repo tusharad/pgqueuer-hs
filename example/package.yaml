@@ -25,6 +25,9 @@ dependencies:
 - uuid
 - postgresql-simple
 - bytestring
+- aeson
+- text
+- time
 
 ghc-options:
 - -Wall

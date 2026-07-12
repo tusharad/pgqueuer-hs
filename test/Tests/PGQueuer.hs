@@ -8,7 +8,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Data.Aeson
-import qualified Data.ByteString as BS
 import Data.Either (isLeft, isRight)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
@@ -177,11 +176,11 @@ roundTripJSONPayload = do
             let params = [EntrypointExecutionParameter ep 0]
             qm1 <- registerEntrypoint qm ep (\_ -> pure ())
             let payload = encode $ BasicType "Hello" 25
-            _ <- enqueue qm1 ep (Just (BS.toStrict payload)) 0 Nothing Nothing Nothing
+            _ <- enqueue qm1 ep (Just payload) 0 Nothing Nothing Nothing
 
             pickedJobs <- dequeue qm1 20 params Nothing 3
             expectOne "pickup job lookup failed" pickedJobs $ \job ->
-                case decodeStrict (fromMaybe "{}" $ jobPayload job) of
+                case decode (fromMaybe "{}" $ jobPayload job) of
                     Nothing -> assertFailure "decoding of payload failed"
                     Just x -> do
                         assertEqual "round trip name" "Hello" (name x)

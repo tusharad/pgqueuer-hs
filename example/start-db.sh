@@ -1,6 +1,6 @@
-docker stop queue-db
-docker rm queue-db
-docker run \
+podman stop queue-db
+podman rm queue-db
+podman run \
   --name queue-db -d \
   -e POSTGRES_USER=queue_user \
   -e POSTGRES_PASSWORD=queue_pass \

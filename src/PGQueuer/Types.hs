@@ -22,7 +22,7 @@ module PGQueuer.Types (
 ) where
 
 import Data.Aeson (Value)
-import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BL
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -155,7 +155,7 @@ data Job = Job
     , jobExecuteAfter :: UTCTime
     , jobStatus :: JobStatus
     , jobEntrypoint :: Entrypoint
-    , jobPayload :: Maybe ByteString
+    , jobPayload :: Maybe BL.ByteString
     , jobAttempts :: Int
     , jobQueueManagerId :: Maybe UUID
     , jobHeaders :: Maybe Value
