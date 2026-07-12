@@ -6,7 +6,9 @@ cabal-version: 1.12
 
 name:           pgqueuer-hs
 version:        0.0.1.0
+synopsis:       PostgreSQL powered Job queue
 description:    Please see the README on GitHub at <https://github.com/tusharad/pgqueuer-hs#readme>
+category:       Database
 homepage:       https://github.com/tusharad/pgqueuer-hs#readme
 bug-reports:    https://github.com/tusharad/pgqueuer-hs/issues
 author:         Tushar Adhatrao
