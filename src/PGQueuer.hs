@@ -25,6 +25,7 @@ module PGQueuer (
 import Control.Exception (bracket)
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -86,7 +87,7 @@ registerEntrypoint qm (Entrypoint ep) handler = do
 enqueue ::
     QueueManager ->
     Entrypoint ->
-    Maybe ByteString ->
+    Maybe BL.ByteString ->
     Int ->
     Maybe NominalDiffTime ->
     Maybe Text ->
@@ -101,7 +102,7 @@ enqueue qm =
 enqueueMultiple ::
     QueueManager ->
     [Entrypoint] ->
-    [Maybe ByteString] ->
+    [Maybe BL.ByteString] ->
     [Int] ->
     [Maybe NominalDiffTime] ->
     [Maybe Text] ->
