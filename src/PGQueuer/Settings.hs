@@ -40,10 +40,10 @@ defaultDBSettings =
 -- ============================================================================
 
 queueTable :: DBSettings -> Text
-queueTable settings = dbPrefix settings <> "pgqueuer_queue"
+queueTable settings = dbPrefix settings <> "pgqueuer"
 
 queueTableLog :: DBSettings -> Text
-queueTableLog settings = dbPrefix settings <> "pgqueuer_queue_log"
+queueTableLog settings = dbPrefix settings <> "pgqueuer_log"
 
 statisticsTable :: DBSettings -> Text
 statisticsTable settings = dbPrefix settings <> "pgqueuer_statistics"
@@ -52,10 +52,10 @@ schedulesTable :: DBSettings -> Text
 schedulesTable settings = dbPrefix settings <> "pgqueuer_schedules"
 
 queueStatusType :: DBSettings -> Text
-queueStatusType settings = dbPrefix settings <> "pgqueuer_job_status"
+queueStatusType settings = dbPrefix settings <> "pgqueuer_status"
 
 function :: DBSettings -> Text
-function settings = dbPrefix settings <> "pgqueuer_notify_fn"
+function settings = dbPrefix settings <> "fn_pgqueuer_changed"
 
 trigger :: DBSettings -> Text
-trigger settings = dbPrefix settings <> "pgqueuer_trigger"
+trigger settings = dbPrefix settings <> "tg_pgqueuer_changed"

@@ -26,7 +26,7 @@ The Haskell port uses the **exact same schema** as Python pgqueuer:
 
 ### Tables
 
-- **pgqueuer_queue**: Main job table
+- **pgqueuer**: Main job table
   - `id`: Job ID (SERIAL PRIMARY KEY)
   - `priority`: Job priority (INT)
   - `status`: Job status (ENUM: queued, picked, successful, exception, canceled, deleted, failed)
@@ -39,7 +39,7 @@ The Haskell port uses the **exact same schema** as Python pgqueuer:
   - `queue_manager_id`: Worker ID (UUID)
   - `created`, `updated`, `heartbeat`: Timestamps
 
-- **pgqueuer_queue_log**: Job event log
+- **pgqueuer_log**: Job event log
   - `job_id`: Reference to queue.id
   - `status`: Status at the time of log entry
   - `traceback`: Exception details (JSONB)

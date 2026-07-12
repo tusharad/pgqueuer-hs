@@ -265,7 +265,7 @@ data EntrypointExecutionParameter = EntrypointExecutionParameter
 -- ============================================================================
 
 defaultChannel :: Channel
-defaultChannel = Channel "pgqueuer"
+defaultChannel = Channel "ch_pgqueuer"
 
 defaultBatchSize :: Int
 defaultBatchSize = 100

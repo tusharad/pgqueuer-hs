@@ -20,7 +20,7 @@ import PGQueuer.Settings
 -- | Install the schema in the database
 install :: Connection -> DBSettings -> IO ()
 install conn _settings = do
-    _ <- execute_ conn "CREATE TYPE pgqueuer_job_status AS ENUM ('queued', 'picked', 'successful', 'exception', 'canceled', 'deleted', 'failed');"
+    _ <- execute_ conn "CREATE TYPE pgqueuer_status AS ENUM ('queued', 'picked', 'successful', 'exception', 'canceled', 'deleted', 'failed');"
     _ <- execute_ conn $ textToQuery queueTableSQL
     _ <- execute_ conn $ textToQuery queueLogTableSQL
     _ <- execute_ conn $ textToQuery statisticsTableSQL
@@ -32,19 +32,19 @@ install conn _settings = do
 -- | Uninstall the schema from the database
 uninstall :: Connection -> DBSettings -> IO ()
 uninstall conn _settings = do
-    _ <- execute_ conn "DROP TRIGGER IF EXISTS pgqueuer_trigger ON pgqueuer_queue;"
-    _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_queue;"
-    _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_queue_log;"
+    _ <- execute_ conn "DROP TRIGGER IF EXISTS tg_pgqueuer_changed ON pgqueuer;"
+    _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer;"
+    _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_log;"
     _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_statistics;"
     _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_schedules;"
-    _ <- execute_ conn "DROP TYPE IF EXISTS pgqueuer_job_status;"
-    _ <- execute_ conn "DROP FUNCTION IF EXISTS pgqueuer_notify_fn();"
+    _ <- execute_ conn "DROP TYPE IF EXISTS pgqueuer_status;"
+    _ <- execute_ conn "DROP FUNCTION IF EXISTS fn_pgqueuer_changed();"
     return ()
 
 -- | Verify the schema is properly installed
 verifyStructure_ :: Connection -> DBSettings -> IO (Either String ())
 verifyStructure_ conn _settings = do
-    result <- PG.query_ conn "SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'pgqueuer_queue');" :: IO [Only Bool]
+    result <- PG.query_ conn "SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'pgqueuer');" :: IO [Only Bool]
     case result of
         [Only True] -> return $ Right ()
         _ -> return $ Left "Queue table is missing. Please run 'pgqueuer install' to set up the schema."
@@ -63,7 +63,7 @@ textToQuery = fromString . T.unpack
 queueTableSQL :: T.Text
 queueTableSQL =
     T.unlines
-        [ "CREATE TABLE IF NOT EXISTS pgqueuer_queue ("
+        [ "CREATE TABLE IF NOT EXISTS pgqueuer ("
         , "    id SERIAL PRIMARY KEY,"
         , "    priority INT NOT NULL,"
         , "    queue_manager_id UUID,"
@@ -71,44 +71,44 @@ queueTableSQL =
         , "    updated TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,"
         , "    heartbeat TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,"
         , "    execute_after TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,"
-        , "    status pgqueuer_job_status NOT NULL,"
+        , "    status pgqueuer_status NOT NULL,"
         , "    entrypoint TEXT NOT NULL,"
         , "    dedupe_key TEXT,"
         , "    payload BYTEA,"
         , "    headers JSONB,"
         , "    attempts INT NOT NULL DEFAULT 0"
         , ");"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_priority_id_idx ON pgqueuer_queue (priority ASC, id DESC)"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_priority_id_idx ON pgqueuer (priority ASC, id DESC)"
         , "    INCLUDE (id) WHERE status = 'queued';"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_updated_id_idx ON pgqueuer_queue (updated ASC, id DESC)"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_updated_id_idx ON pgqueuer (updated ASC, id DESC)"
         , "    INCLUDE (id) WHERE status = 'picked';"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_manager_id_idx ON pgqueuer_queue (queue_manager_id)"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_manager_id_idx ON pgqueuer (queue_manager_id)"
         , "    WHERE queue_manager_id IS NOT NULL;"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_ep_prio_id_idx ON pgqueuer_queue (entrypoint, priority DESC, id ASC)"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_ep_prio_id_idx ON pgqueuer (entrypoint, priority DESC, id ASC)"
         , "    WHERE status = 'queued';"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_ep_ea_idx ON pgqueuer_queue (entrypoint, execute_after)"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_ep_ea_idx ON pgqueuer (entrypoint, execute_after)"
         , "    WHERE status = 'queued';"
-        , "CREATE UNIQUE INDEX IF NOT EXISTS pgqueuer_queue_unique_dedupe_key ON pgqueuer_queue (dedupe_key)"
+        , "CREATE UNIQUE INDEX IF NOT EXISTS pgqueuer_unique_dedupe_key ON pgqueuer (dedupe_key)"
         , "    WHERE ((status IN ('queued', 'picked') AND dedupe_key IS NOT NULL));"
         ]
 
 queueLogTableSQL :: T.Text
 queueLogTableSQL =
     T.unlines
-        [ "CREATE UNLOGGED TABLE IF NOT EXISTS pgqueuer_queue_log ("
+        [ "CREATE UNLOGGED TABLE IF NOT EXISTS pgqueuer_log ("
         , "    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,"
         , "    created TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,"
         , "    job_id BIGINT NOT NULL,"
-        , "    status pgqueuer_job_status NOT NULL,"
+        , "    status pgqueuer_status NOT NULL,"
         , "    priority INT NOT NULL,"
         , "    entrypoint TEXT NOT NULL,"
         , "    traceback JSONB DEFAULT NULL,"
         , "    aggregated BOOLEAN DEFAULT FALSE"
         , ");"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_log_not_aggregated ON pgqueuer_queue_log (entrypoint, priority, status, created) WHERE not aggregated;"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_log_created ON pgqueuer_queue_log (created);"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_log_status ON pgqueuer_queue_log (status);"
-        , "CREATE INDEX IF NOT EXISTS pgqueuer_queue_log_job_id_status ON pgqueuer_queue_log (job_id, created DESC);"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_log_not_aggregated ON pgqueuer_log (entrypoint, priority, status, created) WHERE not aggregated;"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_log_created ON pgqueuer_log (created);"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_log_status ON pgqueuer_log (status);"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_log_job_id_status ON pgqueuer_log (job_id, created DESC);"
         ]
 
 statisticsTableSQL :: T.Text
@@ -119,7 +119,7 @@ statisticsTableSQL =
         , "    created TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT DATE_TRUNC('sec', NOW() at time zone 'UTC'),"
         , "    count BIGINT NOT NULL,"
         , "    priority INT NOT NULL,"
-        , "    status pgqueuer_job_status NOT NULL,"
+        , "    status pgqueuer_status NOT NULL,"
         , "    entrypoint TEXT NOT NULL"
         , ");"
         , "CREATE UNIQUE INDEX IF NOT EXISTS pgqueuer_statistics_unique_count ON pgqueuer_statistics ("
@@ -142,7 +142,7 @@ schedulesTableSQL =
         , "    updated TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,"
         , "    next_run TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,"
         , "    last_run TIMESTAMP WITH TIME ZONE,"
-        , "    status pgqueuer_job_status DEFAULT 'queued',"
+        , "    status pgqueuer_status DEFAULT 'queued',"
         , "    UNIQUE (expression, entrypoint)"
         , ");"
         ]
@@ -150,7 +150,7 @@ schedulesTableSQL =
 triggerFunctionSQL :: T.Text
 triggerFunctionSQL =
     T.unlines
-        [ "CREATE OR REPLACE FUNCTION pgqueuer_notify_fn() RETURNS TRIGGER AS $$"
+        [ "CREATE OR REPLACE FUNCTION fn_pgqueuer_changed() RETURNS TRIGGER AS $$"
         , "DECLARE"
         , "    to_emit BOOLEAN := false;"
         , "BEGIN"
@@ -191,10 +191,10 @@ triggerFunctionSQL =
 triggerSQL :: T.Text
 triggerSQL =
     T.unlines
-        [ "CREATE TRIGGER pgqueuer_trigger"
-        , "AFTER INSERT OR UPDATE OR DELETE ON pgqueuer_queue"
-        , "FOR EACH ROW EXECUTE FUNCTION pgqueuer_notify_fn();"
-        , "CREATE TRIGGER pgqueuer_trigger_truncate"
-        , "AFTER TRUNCATE ON pgqueuer_queue"
-        , "FOR EACH STATEMENT EXECUTE FUNCTION pgqueuer_notify_fn();"
+        [ "CREATE TRIGGER tg_pgqueuer_changed"
+        , "AFTER INSERT OR UPDATE OR DELETE ON pgqueuer"
+        , "FOR EACH ROW EXECUTE FUNCTION fn_pgqueuer_changed();"
+        , "CREATE TRIGGER tg_pgqueuer_changed_truncate"
+        , "AFTER TRUNCATE ON pgqueuer"
+        , "FOR EACH STATEMENT EXECUTE FUNCTION fn_pgqueuer_changed();"
         ]
