@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Simple (runApp) where
+module Python where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad (when)
@@ -18,7 +18,7 @@ handleJob job = do
     -- Simulate work
     threadDelay 100000 -- 0.1 second
     -- Log completion
-    putStrLn $ "Completed: " ++ show (jobId job)
+    putStrLn $ "Got a Job from Python!: " ++ show (jobId job) ++ show (jobPayload job)
 
 runApp :: IO ()
 runApp = do
@@ -40,53 +40,34 @@ runApp = do
     putStrLn "Installing schema..."
     eInstalled <- verifyStructure qm1
     when (isLeft eInstalled) (installSchema qm1)
-    installSchema qm1
     putStrLn "Schema installed"
+    producer qm1
 
-    -- Producer thread
-    queueMgrId2 <- nextRandom
-    _producerThreadId <- forkIO $ do
-        conn' <-
-            connect
-                defaultConnectInfo
-                    { connectHost = "localhost"
-                    , connectPort = 5432
-                    , connectUser = "queue_user"
-                    , connectPassword = "queue_pass"
-                    , connectDatabase = "queue_db"
-                    }
-        qm <- createQueueManager conn' settings queueMgrId2
-        threadDelay 2000000 -- Wait 2 seconds
-        jobIds <-
-            enqueueMultiple
-                qm
-                (replicate 10 (Entrypoint "fetch"))
-                [Just (pack $ "Job " ++ show n) | n <- [1 .. 10] :: [Int]]
-                (replicate 10 0)
-                []
-                []
-                []
-        putStrLn $ "Producer: Enqueued " ++ show (length jobIds) ++ " jobs"
+{-
+-- Consumer thread
+queueMgrId3 <- nextRandom
+_consumerThreadId <- forkIO $ do
+    qm <- createQueueManager conn settings queueMgrId3
+    processedCount <- processJobsWithTimeout 5 qm
+    putStrLn $ "Consumer: Processed " ++ show processedCount ++ " jobs"
 
-    -- Consumer thread
-    queueMgrId3 <- nextRandom
-    _consumerThreadId <- forkIO $ do
-        conn' <-
-            connect
-                defaultConnectInfo
-                    { connectHost = "localhost"
-                    , connectPort = 5432
-                    , connectUser = "queue_user"
-                    , connectPassword = "queue_pass"
-                    , connectDatabase = "queue_db"
-                    }
-        qm <- createQueueManager conn' settings queueMgrId3
-        processedCount <- processJobsWithTimeout 5 qm
-        putStrLn $ "Consumer: Processed " ++ show processedCount ++ " jobs"
+-- Wait for threads to complete
+threadDelay 15000000 -- 15 seconds
+putStrLn "Combined example completed"
+-}
 
-    -- Wait for threads to complete
-    threadDelay 15000000 -- 15 seconds
-    putStrLn "Combined example completed"
+producer :: QueueManager -> IO ()
+producer qm = do
+    jobIds <-
+        enqueueMultiple
+            qm
+            (replicate 10 (Entrypoint "fetch"))
+            [Just (pack $ "Job " ++ show n) | n <- [1 .. 10] :: [Int]]
+            (replicate 10 0)
+            []
+            []
+            []
+    putStrLn $ "Producer: Enqueued " ++ show (length jobIds) ++ " jobs"
 
 -- | Process jobs with a timeout (in seconds)
 processJobsWithTimeout :: Int -> QueueManager -> IO Int

@@ -27,6 +27,7 @@ library
   exposed-modules:
       HPCScheduler
       Lib
+      Python
       Simple
   other-modules:
       Paths_example
