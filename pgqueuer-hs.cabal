@@ -28,6 +28,8 @@ source-repository head
 library
   exposed-modules:
       PGQueuer
+      PGQueuer.Backend.Simple
+      PGQueuer.Core.Monad
       PGQueuer.Listener
       PGQueuer.Query
       PGQueuer.Schema
@@ -43,6 +45,7 @@ library
     , base >=4.7 && <5
     , bytestring >=0.10.4.0 && <0.13
     , containers >=0.6 && <0.8
+    , mtl >=2.2 && <3
     , postgresql-simple >=0.7 && <0.9
     , text >=1.2 && <3
     , time >=1.9 && <2
@@ -53,6 +56,7 @@ test-suite pgqueuer-hs-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Tests.CoreSpec
       Tests.PGQueuer
       Paths_pgqueuer_hs
   hs-source-dirs:
@@ -60,9 +64,11 @@ test-suite pgqueuer-hs-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wredundant-constraints -Wno-partial-fields -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson >=2.0 && <3
+    , async >=2.2 && <3
     , base >=4.7 && <5
     , bytestring >=0.10.4.0 && <0.13
     , containers >=0.6 && <0.8
+    , mtl >=2.2 && <3
     , pgqueuer-hs
     , postgresql-simple >=0.7 && <0.9
     , tasty >=1.4 && <2
