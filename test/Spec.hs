@@ -1,4 +1,8 @@
-import Tests.PGQueuer
+import Test.Tasty
+import Tests.CoreSpec (coreTests)
+import Tests.PGQueuer (runTests)
 
 main :: IO ()
-main = runTests
+main = do
+    runTests
+    defaultMain coreTests
