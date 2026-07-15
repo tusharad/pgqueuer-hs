@@ -2,7 +2,6 @@
 
 module Python (runApp) where
 
-import Control.Concurrent (threadDelay)
 import Control.Monad (when)
 import Data.ByteString.Lazy.Char8 (pack)
 import Data.Either (isLeft)
