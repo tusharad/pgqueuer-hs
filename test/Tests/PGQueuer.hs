@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Tests.PGQueuer (runTests) where
+module Tests.PGQueuer (pgqueuerTests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -15,19 +15,18 @@ import Data.UUID.V4 (nextRandom)
 import GHC.Generics
 import PGQueuer
 
-runTests :: IO ()
-runTests =
-    defaultMain $
-        dependentTestGroup
-            "All tests"
-            AllFinish
-            [ schemaTests
-            , entrypointTests
-            , enqueueDequeueJobs
-            , enqueueDequeueMultipleJobs
-            , logAndListJobs
-            , roundTripJSONPayload
-            ]
+pgqueuerTests :: TestTree
+pgqueuerTests =
+    dependentTestGroup
+        "All tests"
+        AllFinish
+        [ schemaTests
+        , entrypointTests
+        , enqueueDequeueJobs
+        , enqueueDequeueMultipleJobs
+        , logAndListJobs
+        , roundTripJSONPayload
+        ]
 
 withFreshQueue :: (QueueManager -> IO a) -> IO a
 withFreshQueue action = do

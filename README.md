@@ -103,6 +103,32 @@ PGQueuer creates a self-contained ecosystem within your PostgreSQL database:
 - Postgresql-simple is currently being used as the primary database driver. In the future, adapter drivers will be implemented.
 - Scheduling is not supported right now.
 
+## Development
+
+For local development, testing, and benchmarking, a `Makefile` is provided to manage the database and schema.
+
+1. **Start the Database** (requires `podman` or `docker`):
+   ```bash
+   make db-up
+   ```
+   *(Override the engine using `make ENGINE=docker db-up` if necessary)*
+
+2. **Install Schema**:
+   ```bash
+   make install-schema
+   ```
+
+3. **Run Tests & Benchmarks**:
+   ```bash
+   make test
+   make bench
+   ```
+
+4. **Stop Database**:
+   ```bash
+   make db-down
+   ```
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
