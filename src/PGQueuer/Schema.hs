@@ -28,7 +28,9 @@ install conn _settings = do
 -- | Uninstall the schema from the database
 uninstall :: Connection -> DBSettings -> IO ()
 uninstall conn _settings = do
-    _ <- execute_ conn "DROP TRIGGER IF EXISTS tg_pgqueuer_changed ON pgqueuer;"
+    _ <- execute_ conn "DROP TRIGGER IF EXISTS tg_pgqueuer_changed_insert_delete ON pgqueuer;"
+    _ <- execute_ conn "DROP TRIGGER IF EXISTS tg_pgqueuer_changed_update ON pgqueuer;"
+    _ <- execute_ conn "DROP TRIGGER IF EXISTS tg_pgqueuer_changed_truncate ON pgqueuer;"
     _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer;"
     _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_log;"
     _ <- execute_ conn "DROP TABLE IF EXISTS pgqueuer_statistics;"
@@ -148,12 +150,7 @@ triggerFunctionSQL =
         , "DECLARE"
         , "    to_emit BOOLEAN := false;"
         , "BEGIN"
-        , "    IF TG_OP = 'UPDATE' AND OLD IS DISTINCT FROM NEW AND ("
-        , "        OLD.status IS DISTINCT FROM NEW.status OR"
-        , "        OLD.priority IS DISTINCT FROM NEW.priority OR"
-        , "        OLD.execute_after IS DISTINCT FROM NEW.execute_after OR"
-        , "        OLD.entrypoint IS DISTINCT FROM NEW.entrypoint"
-        , "    ) THEN"
+        , "    IF TG_OP = 'UPDATE' THEN"
         , "        to_emit := true;"
         , "    ELSIF TG_OP = 'DELETE' THEN"
         , "        to_emit := true;"
@@ -190,9 +187,14 @@ triggerFunctionSQL =
 triggerSQL :: T.Text
 triggerSQL =
     T.unlines
-        [ "CREATE TRIGGER tg_pgqueuer_changed"
-        , "AFTER INSERT OR UPDATE OR DELETE ON pgqueuer"
+        [ "CREATE TRIGGER tg_pgqueuer_changed_insert_delete"
+        , "AFTER INSERT OR DELETE ON pgqueuer"
         , "FOR EACH ROW EXECUTE FUNCTION fn_pgqueuer_changed();"
+        , "CREATE TRIGGER tg_pgqueuer_changed_update"
+        , "AFTER UPDATE ON pgqueuer"
+        , "FOR EACH ROW"
+        , "WHEN (OLD.status IS DISTINCT FROM NEW.status)"
+        , "EXECUTE FUNCTION fn_pgqueuer_changed();"
         , "CREATE TRIGGER tg_pgqueuer_changed_truncate"
         , "AFTER TRUNCATE ON pgqueuer"
         , "FOR EACH STATEMENT EXECUTE FUNCTION fn_pgqueuer_changed();"
