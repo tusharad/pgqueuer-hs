@@ -24,3 +24,9 @@ jobs:
           ./example/start-db.sh
 
       - uses: freckle/stack-action@v5
+      
+      - name: run benchmarks
+        run: stack bench
+        
+      - name: build example project
+        run: make build-example

@@ -21,3 +21,12 @@ jobs:
         run: |
           ./example/start-db.sh
       - uses: freckle/stack-action@v5
+      
+      - name: run benchmarks
+        run: stack bench
+        
+      - uses: freckle/stack-action@v5
+        with:
+          working-directory: "./example"
+          test: false
+
