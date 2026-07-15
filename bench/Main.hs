@@ -15,7 +15,7 @@ accumulation from a local PostgreSQL instance.
 -}
 module Main (main) where
 
-import Control.Monad (forM_, unless, void)
+import Control.Monad (forM_, replicateM_, unless, void)
 import Data.ByteString (ByteString)
 import Data.IORef
 import Data.Int (Int64)
@@ -90,7 +90,7 @@ runPoolSession' dbEnv session = do
 -- ============================================================================
 
 -- | Run the ungrouped single-mode workload: batch_size=1, 1000 jobs.
-benchUngroupedSingle :: HasqlDbEnv -> IO ()
+benchUngroupedSingle :: HasqlDbEnv -> IO (IO ())
 benchUngroupedSingle dbEnv = do
     let ep = Entrypoint "bench_single"
         params = [EntrypointExecutionParameter ep 0]
@@ -105,17 +105,22 @@ benchUngroupedSingle dbEnv = do
     qmId <- nextRandom
     dequeued <- newIORef (0 :: Int)
     let loop = do
-            jobs <- runHasqlDb dbEnv $ dequeue 1 params qmId Nothing 300
+            jobs <- runHasqlDb dbEnv $ dequeue 1 params qmId Nothing 30
             unless (null jobs) $ do
+                -- Simulate heartbeats to prove HOT updates
+                replicateM_ 2 $
+                    runHasqlDb dbEnv $
+                        updateHeartbeat [jobId j | j <- jobs]
+
                 -- Log as successful
                 runHasqlDb dbEnv $
                     logJobs [(jobId j, Successful, Nothing) | j <- jobs]
                 modifyIORef' dequeued (+ length jobs)
                 loop
-    loop
+    return loop
 
 -- | Run the ungrouped batched-mode workload: batch_size=10, 1000 jobs.
-benchUngroupedBatched :: HasqlDbEnv -> IO ()
+benchUngroupedBatched :: HasqlDbEnv -> IO (IO ())
 benchUngroupedBatched dbEnv = do
     let ep = Entrypoint "bench_batch"
         params = [EntrypointExecutionParameter ep 0]
@@ -129,15 +134,20 @@ benchUngroupedBatched dbEnv = do
     -- Dequeue in batches of 10
     qmId <- nextRandom
     let loop = do
-            jobs <- runHasqlDb dbEnv $ dequeue 10 params qmId Nothing 300
+            jobs <- runHasqlDb dbEnv $ dequeue 10 params qmId Nothing 30
             unless (null jobs) $ do
+                -- Simulate heartbeat
+                replicateM_ 2 $
+                    runHasqlDb dbEnv $
+                        updateHeartbeat [jobId j | j <- jobs]
+
                 runHasqlDb dbEnv $
                     logJobs [(jobId j, Successful, Nothing) | j <- jobs]
                 loop
-    loop
+    return loop
 
 -- | Run the high-cardinality grouped workload: 2500 distinct groups.
-benchHighCardinalityGrouped :: HasqlDbEnv -> IO ()
+benchHighCardinalityGrouped :: HasqlDbEnv -> IO (IO ())
 benchHighCardinalityGrouped dbEnv = do
     let jobCount = 2500 :: Int
         batchSize = 10
@@ -158,12 +168,17 @@ benchHighCardinalityGrouped dbEnv = do
     -- Dequeue in batches
     qmId <- nextRandom
     let loop = do
-            jobs <- runHasqlDb dbEnv $ dequeue batchSize allParams qmId Nothing 300
+            jobs <- runHasqlDb dbEnv $ dequeue batchSize allParams qmId Nothing 30
             unless (null jobs) $ do
+                -- Simulate heartbeat
+                replicateM_ 2 $
+                    runHasqlDb dbEnv $
+                        updateHeartbeat [jobId j | j <- jobs]
+
                 runHasqlDb dbEnv $
                     logJobs [(jobId j, Successful, Nothing) | j <- jobs]
                 loop
-    loop
+    return loop
 
 -- ============================================================================
 -- Telemetry reporting
@@ -249,12 +264,19 @@ main = do
     putStrLn "Worker Throughput (hasql) - 4 pool connections"
     putStrLn ""
 
+    let quietBenchDb = do
+            void $ PG.execute_ schemaConn "ALTER TABLE pgqueuer SET (autovacuum_enabled = false);"
+            void $ PG.execute_ schemaConn "VACUUM ANALYZE pgqueuer;"
+            void $ PG.execute_ schemaConn "CHECKPOINT;"
+
     -- Profile 1: Ungrouped Single
     do
         resetSchema
+        runBench <- benchUngroupedSingle dbEnv
+        quietBenchDb
         preSnap <- captureSnapshot dbEnv
         startTime <- getCurrentTime
-        benchUngroupedSingle dbEnv
+        runBench
         endTime <- getCurrentTime
         postSnap <- captureSnapshot dbEnv
         let elapsed = realToFrac (diffUTCTime endTime startTime) :: Double
@@ -265,9 +287,11 @@ main = do
     -- Profile 2: Ungrouped Batched
     do
         resetSchema
+        runBench <- benchUngroupedBatched dbEnv
+        quietBenchDb
         preSnap <- captureSnapshot dbEnv
         startTime <- getCurrentTime
-        benchUngroupedBatched dbEnv
+        runBench
         endTime <- getCurrentTime
         postSnap <- captureSnapshot dbEnv
         let elapsed = realToFrac (diffUTCTime endTime startTime) :: Double
@@ -278,9 +302,11 @@ main = do
     -- Profile 3: High-Cardinality Grouped
     do
         resetSchema
+        runBench <- benchHighCardinalityGrouped dbEnv
+        quietBenchDb
         preSnap <- captureSnapshot dbEnv
         startTime <- getCurrentTime
-        benchHighCardinalityGrouped dbEnv
+        runBench
         endTime <- getCurrentTime
         postSnap <- captureSnapshot dbEnv
         let elapsed = realToFrac (diffUTCTime endTime startTime) :: Double

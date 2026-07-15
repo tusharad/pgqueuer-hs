@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Python where
+module Python (runApp) where
 
-import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad (when)
 import Data.ByteString.Lazy.Char8 (pack)
 import Data.Either (isLeft)
@@ -10,15 +9,6 @@ import Data.UUID.V4 (nextRandom)
 import Database.PostgreSQL.Simple (ConnectInfo (..), connect, defaultConnectInfo)
 
 import PGQueuer
-
--- | Handle a single job with error handling
-handleJob :: Job -> IO ()
-handleJob job = do
-    putStrLn $ "Processing: " ++ show (jobId job)
-    -- Simulate work
-    threadDelay 100000 -- 0.1 second
-    -- Log completion
-    putStrLn $ "Got a Job from Python!: " ++ show (jobId job) ++ show (jobPayload job)
 
 runApp :: IO ()
 runApp = do
@@ -68,30 +58,3 @@ producer qm = do
             []
             []
     putStrLn $ "Producer: Enqueued " ++ show (length jobIds) ++ " jobs"
-
--- | Process jobs with a timeout (in seconds)
-processJobsWithTimeout :: Int -> QueueManager -> IO Int
-processJobsWithTimeout timeoutSecs qm = do
-    go 0 0
-  where
-    maxTime = timeoutSecs * 1000000 -- Convert to microseconds
-    go count elapsedTime
-        | elapsedTime > maxTime = return count
-        | otherwise = do
-            jobs <-
-                dequeue
-                    qm
-                    10 -- batch size
-                    [EntrypointExecutionParameter (Entrypoint "fetch") 0]
-                    Nothing
-                    300
-
-            if null jobs
-                then do
-                    threadDelay 100000
-                    go count (elapsedTime + 100000)
-                else do
-                    mapM_ handleJob jobs
-                    let newCount = count + length jobs
-                    threadDelay 100000
-                    go newCount (elapsedTime + 100000)
