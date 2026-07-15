@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Python where
+module Python (runApp) where
 
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (threadDelay)
 import Control.Monad (when)
 import Data.ByteString.Lazy.Char8 (pack)
 import Data.Either (isLeft)

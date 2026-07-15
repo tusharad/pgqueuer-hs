@@ -15,7 +15,7 @@ accumulation from a local PostgreSQL instance.
 -}
 module Main (main) where
 
-import Control.Monad (forM_, unless, void)
+import Control.Monad (forM_, replicateM_, unless, void)
 import Data.ByteString (ByteString)
 import Data.IORef
 import Data.Int (Int64)
@@ -107,6 +107,11 @@ benchUngroupedSingle dbEnv = do
     let loop = do
             jobs <- runHasqlDb dbEnv $ dequeue 1 params qmId Nothing 300
             unless (null jobs) $ do
+                -- Simulate heartbeats to prove HOT updates
+                replicateM_ 20 $
+                    runHasqlDb dbEnv $
+                        updateHeartbeat [jobId j | j <- jobs]
+
                 -- Log as successful
                 runHasqlDb dbEnv $
                     logJobs [(jobId j, Successful, Nothing) | j <- jobs]
@@ -131,6 +136,11 @@ benchUngroupedBatched dbEnv = do
     let loop = do
             jobs <- runHasqlDb dbEnv $ dequeue 10 params qmId Nothing 300
             unless (null jobs) $ do
+                -- Simulate heartbeat
+                replicateM_ 20 $
+                    runHasqlDb dbEnv $
+                        updateHeartbeat [jobId j | j <- jobs]
+
                 runHasqlDb dbEnv $
                     logJobs [(jobId j, Successful, Nothing) | j <- jobs]
                 loop
@@ -160,6 +170,11 @@ benchHighCardinalityGrouped dbEnv = do
     let loop = do
             jobs <- runHasqlDb dbEnv $ dequeue batchSize allParams qmId Nothing 300
             unless (null jobs) $ do
+                -- Simulate heartbeat
+                replicateM_ 20 $
+                    runHasqlDb dbEnv $
+                        updateHeartbeat [jobId j | j <- jobs]
+
                 runHasqlDb dbEnv $
                     logJobs [(jobId j, Successful, Nothing) | j <- jobs]
                 loop

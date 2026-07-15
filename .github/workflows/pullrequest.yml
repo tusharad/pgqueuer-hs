@@ -28,5 +28,8 @@ jobs:
       - name: run benchmarks
         run: stack bench
         
-      - name: build example project
-        run: make build-example
+      - uses: freckle/stack-action@v5
+        with:
+          working-directory: "./example"
+          test: false
+

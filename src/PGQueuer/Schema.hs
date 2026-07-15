@@ -78,6 +78,12 @@ queueTableSQL =
         , "    WHERE status = 'queued';"
         , "CREATE UNIQUE INDEX IF NOT EXISTS pgqueuer_unique_dedupe_key ON pgqueuer (dedupe_key)"
         , "    WHERE ((status IN ('queued', 'picked') AND dedupe_key IS NOT NULL));"
+        , "ALTER TABLE pgqueuer SET (fillfactor = 70);"
+        , "ALTER TABLE pgqueuer SET ("
+        , "    autovacuum_vacuum_scale_factor = 0.01,"
+        , "    autovacuum_vacuum_threshold = 1000,"
+        , "    autovacuum_analyze_scale_factor = 0.02"
+        , ");"
         ]
 
 queueLogTableSQL :: T.Text
@@ -142,7 +148,12 @@ triggerFunctionSQL =
         , "DECLARE"
         , "    to_emit BOOLEAN := false;"
         , "BEGIN"
-        , "    IF TG_OP = 'UPDATE' AND OLD IS DISTINCT FROM NEW THEN"
+        , "    IF TG_OP = 'UPDATE' AND OLD IS DISTINCT FROM NEW AND ("
+        , "        OLD.status IS DISTINCT FROM NEW.status OR"
+        , "        OLD.priority IS DISTINCT FROM NEW.priority OR"
+        , "        OLD.execute_after IS DISTINCT FROM NEW.execute_after OR"
+        , "        OLD.entrypoint IS DISTINCT FROM NEW.entrypoint"
+        , "    ) THEN"
         , "        to_emit := true;"
         , "    ELSIF TG_OP = 'DELETE' THEN"
         , "        to_emit := true;"
