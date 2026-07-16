@@ -94,7 +94,7 @@ runPoolSession' dbEnv session = do
 benchUngroupedSingle :: HasqlDbEnv -> IO (IO ())
 benchUngroupedSingle dbEnv = do
     let ep = Entrypoint "bench_single"
-        params = [EntrypointExecutionParameter ep 0]
+        params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
         jobCount = 1000 :: Int
 
     -- Enqueue all jobs
@@ -124,7 +124,7 @@ benchUngroupedSingle dbEnv = do
 benchUngroupedBatched :: HasqlDbEnv -> IO (IO ())
 benchUngroupedBatched dbEnv = do
     let ep = Entrypoint "bench_batch"
-        params = [EntrypointExecutionParameter ep 0]
+        params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
         jobCount = 1000 :: Int
 
     -- Enqueue all jobs
@@ -162,7 +162,7 @@ benchHighCardinalityGrouped dbEnv = do
 
     -- Build params for all groups
     let allParams =
-            [ EntrypointExecutionParameter (Entrypoint (T.pack $ "group_" <> show i)) 0
+            [ EntrypointExecutionParameter (Entrypoint (T.pack $ "group_" <> show i)) 0 5 (Exponential 5 60) FullJitter
             | i <- [1 .. jobCount]
             ]
 
@@ -187,7 +187,7 @@ Uses STM buffers for both job status logging and heartbeats.
 benchBufferedBatched :: HasqlDbEnv -> IO (IO ())
 benchBufferedBatched dbEnv = do
     let ep = Entrypoint "bench_buffered"
-        params = [EntrypointExecutionParameter ep 0]
+        params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
         jobCount = 1000 :: Int
 
     -- Enqueue all jobs

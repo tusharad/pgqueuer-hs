@@ -18,8 +18,9 @@ where
 
 import Data.Aeson (Value)
 import qualified Data.ByteString.Lazy as BL
+import Data.Int (Int32)
 import Data.Text (Text)
-import Data.Time (NominalDiffTime)
+import Data.Time (NominalDiffTime, UTCTime)
 import Data.UUID (UUID)
 import PGQueuer.Types
 
@@ -70,10 +71,10 @@ class (Monad m) => MonadPGQueuer m where
     -}
     updateHeartbeat :: [JobId] -> m ()
 
-    {- | Retry a failed job after a specified delay, incrementing
-    the attempt counter.
+    {- | Retry failed jobs in bulk.
+    Provides a list of (JobId, newExecuteAfter, newAttempts).
     -}
-    retryJob :: Job -> NominalDiffTime -> Maybe Value -> m ()
+    retryJobs :: [(JobId, UTCTime, Int32)] -> m ()
 
     {- | Execute an action within a database transaction boundary.
     Provides @BEGIN@, @COMMIT@ on success, and @ROLLBACK@ on exception.

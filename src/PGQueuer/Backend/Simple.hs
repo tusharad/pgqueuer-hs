@@ -103,10 +103,10 @@ instance MonadPGQueuer SimpleDb where
         settings <- asks sdbSettings
         liftIO $ Q.updateHeartbeat conn settings jobIds
 
-    retryJob job delay traceback = do
+    retryJobs updates = do
         conn <- asks sdbConnection
         settings <- asks sdbSettings
-        liftIO $ Q.retryJob conn settings job delay traceback
+        liftIO $ Q.retryJobs conn settings updates
 
     withTransaction action = do
         env <- SimpleDb (ReaderT return)

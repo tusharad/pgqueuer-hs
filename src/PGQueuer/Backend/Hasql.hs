@@ -39,7 +39,7 @@ import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Time (NominalDiffTime, addUTCTime)
+import Data.Time (NominalDiffTime)
 import Data.UUID ()
 import qualified Data.Vector as V
 import qualified Hasql.Connection.Setting as HCS
@@ -155,17 +155,17 @@ instance MonadPGQueuer HasqlDb where
             ids = V.fromList $ map (\(JobId i) -> fromIntegral i :: Int32) jobIds
         liftIO $ runPoolSession env $ Session.statement ids (updateHeartbeatStmt settings)
 
-    retryJob job delay _traceback = do
+    retryJobs updates = do
         env <- HasqlDb (ReaderT return)
         let settings = hdbSettings env
-            newExecuteAfter = addUTCTime delay (jobExecuteAfter job)
-            newAttempts = fromIntegral (jobAttempts job + 1) :: Int32
-            JobId jid = jobId job
+            executeAfters = V.fromList [ea | (_, ea, _) <- updates]
+            attempts = V.fromList [a | (_, _, a) <- updates]
+            ids = V.fromList [fromIntegral i | (JobId i, _, _) <- updates]
         liftIO $
             runPoolSession env $
                 Session.statement
-                    (newExecuteAfter, newAttempts, fromIntegral jid :: Int32)
-                    (retryJobStmt settings)
+                    (executeAfters, attempts, ids)
+                    (retryJobsStmt settings)
 
     withTransaction action = do
         env <- HasqlDb (ReaderT return)

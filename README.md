@@ -66,7 +66,7 @@ main = do
 
         -- Enqueue a job
         let ep = Entrypoint "hello"
-        let params = [EntrypointExecutionParameter ep 0]
+        let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
         qm1 <- registerEntrypoint qm ep (\_ -> pure ())
         _ <- enqueue qm1 ep Nothing 0 Nothing Nothing Nothing
 

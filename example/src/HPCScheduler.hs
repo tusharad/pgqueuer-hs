@@ -40,7 +40,7 @@ submitJob qm uType payload = do
 runApp :: IO ()
 runApp = do
     let conStr = "postgresql://queue_user:queue_pass@localhost:5432/queue_db"
-        epParams = [EntrypointExecutionParameter (Entrypoint "calc") 0]
+        epParams = [EntrypointExecutionParameter (Entrypoint "calc") 0 5 (Exponential 5 60) FullJitter]
     queueMgrId <- nextRandom
 
     withQueueManager conStr defaultDBSettings queueMgrId $ \qm -> do

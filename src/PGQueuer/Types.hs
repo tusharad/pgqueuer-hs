@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -19,6 +20,10 @@ module PGQueuer.Types (
     defaultBatchSize,
     jobStatusToText,
     defaultChannel,
+    BackoffStrategy (..),
+    Jitter (..),
+    JobRetryableException (..),
+    JobPermanentException (..),
 ) where
 
 import Data.Aeson (Value)
@@ -26,11 +31,13 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (UTCTime)
+import Data.Time.Clock (NominalDiffTime)
 import Data.UUID (UUID)
 import Database.PostgreSQL.Simple.FromField (FromField (..))
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Database.PostgreSQL.Simple.ToField (ToField (..))
 import GHC.Generics (Generic)
+import UnliftIO.Exception (Exception)
 
 newtype JobId = JobId Int
     deriving stock (Show, Eq, Ord, Generic)
@@ -196,8 +203,35 @@ textToOnFailure _ = Nothing
 data EntrypointExecutionParameter = EntrypointExecutionParameter
     { paramEntrypoint :: Entrypoint
     , paramConcurrencyLimit :: Int
+    , paramMaxAttempts :: Int
+    , paramBackoffStrategy :: BackoffStrategy
+    , paramJitter :: Jitter
     }
     deriving stock (Show, Eq, Generic)
+
+-- | Strategy to use for calculating the backoff delay.
+data BackoffStrategy
+    = Exponential {backoffBase :: NominalDiffTime, backoffCap :: NominalDiffTime}
+    | Linear {backoffBase :: NominalDiffTime, backoffCap :: NominalDiffTime}
+    | Constant {backoffDelay :: NominalDiffTime}
+    deriving stock (Show, Eq, Generic)
+
+-- | Jitter strategy to use when retrying a job.
+data Jitter
+    = NoJitter
+    | FullJitter
+    | EqualJitter
+    deriving stock (Show, Eq, Generic)
+
+-- | Exception indicating a transient failure that should be retried.
+newtype JobRetryableException = JobRetryableException Text
+    deriving stock (Show, Eq)
+    deriving anyclass (Exception)
+
+-- | Exception indicating a permanent failure that should be routed to the DLQ.
+newtype JobPermanentException = JobPermanentException Text
+    deriving stock (Show, Eq)
+    deriving anyclass (Exception)
 
 defaultChannel :: Channel
 defaultChannel = Channel "ch_pgqueuer"
