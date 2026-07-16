@@ -112,3 +112,23 @@ instance MonadPGQueuer SimpleDb where
         env <- SimpleDb (ReaderT return)
         let conn = sdbConnection env
         liftIO $ PG.withTransaction conn (runSimpleDb env action)
+
+    insertSchedule expr ep = do
+        conn <- asks sdbConnection
+        settings <- asks sdbSettings
+        liftIO $ Q.insertSchedule conn settings expr ep
+
+    fetchSchedules = do
+        conn <- asks sdbConnection
+        settings <- asks sdbSettings
+        liftIO $ Q.fetchSchedules conn settings
+
+    setScheduleQueued sid nextRun = do
+        conn <- asks sdbConnection
+        settings <- asks sdbSettings
+        liftIO $ Q.setScheduleQueued conn settings sid nextRun
+
+    getEarliestNextRun = do
+        conn <- asks sdbConnection
+        settings <- asks sdbSettings
+        liftIO $ Q.getEarliestNextRun conn settings

@@ -24,6 +24,10 @@ module PGQueuer.Backend.Hasql.Statements (
     retryJobsStmt,
     walLsnStmt,
     tableStatsStmt,
+    insertScheduleStmt,
+    fetchSchedulesStmt,
+    setScheduleQueuedStmt,
+    getEarliestNextRunStmt,
 ) where
 
 import Data.ByteString (ByteString)
@@ -250,6 +254,20 @@ dequeueStmt settings heartbeatTimeoutSecs =
             <> ((\(_, _, _, _, e) -> e) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.int8))))
     decoder = D.rowVector jobRow
 
+-- | Get earliest next_run.
+getEarliestNextRunStmt :: Statement () (Maybe UTCTime)
+getEarliestNextRunStmt = Statement sql encoder decoder True
+  where
+    sql =
+        TE.encodeUtf8 $
+            T.unlines
+                [ "SELECT MIN(next_run)"
+                , "FROM pgqueuer_schedules"
+                , "WHERE status = 'queued'"
+                ]
+    encoder = E.noParams
+    decoder = D.singleRow (D.column (D.nullable D.timestamptz))
+
 -- ============================================================================
 -- LogJobs Statement
 -- ============================================================================
@@ -408,3 +426,77 @@ tableStatsStmt =
                 <$> D.column (D.nonNullable D.int8)
                 <*> D.column (D.nonNullable D.int8)
                 <*> D.column (D.nonNullable D.int8)
+
+-- ============================================================================
+-- Schedule Statements
+-- ============================================================================
+
+-- | Insert a new cron schedule.
+insertScheduleStmt :: Statement (Text, Text) ()
+insertScheduleStmt = Statement sql encoder decoder True
+  where
+    sql =
+        TE.encodeUtf8 $
+            T.unlines
+                [ "INSERT INTO pgqueuer_schedules (expression, entrypoint)"
+                , "VALUES ($1, $2)"
+                , "ON CONFLICT (expression, entrypoint) DO NOTHING"
+                ]
+    encoder =
+        (fst >$< E.param (E.nonNullable E.text))
+            <> (snd >$< E.param (E.nonNullable E.text))
+    decoder = D.noResult
+
+-- | Fetch due schedules.
+fetchSchedulesStmt :: Statement () (Vector (Int32, Text, Text, UTCTime, UTCTime, UTCTime, UTCTime, Maybe UTCTime, Text))
+fetchSchedulesStmt = Statement sql encoder decoder True
+  where
+    sql =
+        TE.encodeUtf8 $
+            T.unlines
+                [ "UPDATE pgqueuer_schedules"
+                , "SET status = 'picked',"
+                , "    updated = NOW(),"
+                , "    heartbeat = NOW()"
+                , "WHERE id IN ("
+                , "    SELECT id"
+                , "    FROM pgqueuer_schedules"
+                , "    WHERE status = 'queued'"
+                , "      AND next_run <= NOW()"
+                , "    ORDER BY id ASC"
+                , "    FOR UPDATE SKIP LOCKED"
+                , ")"
+                , "RETURNING id, expression, entrypoint, heartbeat, created, updated, next_run, last_run, status::text"
+                ]
+    encoder = E.noParams
+    decoder =
+        D.rowVector $
+            (,,,,,,,,)
+                <$> D.column (D.nonNullable D.int4)
+                <*> D.column (D.nonNullable D.text)
+                <*> D.column (D.nonNullable D.text)
+                <*> D.column (D.nonNullable D.timestamptz)
+                <*> D.column (D.nonNullable D.timestamptz)
+                <*> D.column (D.nonNullable D.timestamptz)
+                <*> D.column (D.nonNullable D.timestamptz)
+                <*> D.column (D.nullable D.timestamptz)
+                <*> D.column (D.nonNullable D.text)
+
+-- | Reset schedule to queued and update next run.
+setScheduleQueuedStmt :: Statement (UTCTime, Int32) ()
+setScheduleQueuedStmt = Statement sql encoder decoder True
+  where
+    sql =
+        TE.encodeUtf8 $
+            T.unlines
+                [ "UPDATE pgqueuer_schedules"
+                , "SET status = 'queued',"
+                , "    updated = NOW(),"
+                , "    last_run = NOW(),"
+                , "    next_run = $1"
+                , "WHERE id = $2"
+                ]
+    encoder =
+        (fst >$< E.param (E.nonNullable E.timestamptz))
+            <> (snd >$< E.param (E.nonNullable E.int4))
+    decoder = D.noResult

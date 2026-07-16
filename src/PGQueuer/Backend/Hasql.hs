@@ -36,6 +36,7 @@ import qualified Data.Aeson as Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -184,6 +185,36 @@ instance MonadPGQueuer HasqlDb where
                             _ <- doRollback `catch` (\(_ :: SomeException) -> return ())
                             throwIO e
                         )
+
+    insertSchedule (CronExpression expr) (Entrypoint ep) = do
+        env <- HasqlDb (ReaderT return)
+        liftIO $ runPoolSession env $ Session.statement (expr, ep) insertScheduleStmt
+
+    fetchSchedules = do
+        env <- HasqlDb (ReaderT return)
+        rows <- liftIO $ runPoolSession env $ Session.statement () fetchSchedulesStmt
+        return $ V.toList $ V.map mapScheduleRow rows
+      where
+        mapScheduleRow (i, expr, ep, hb, cr, upd, nr, lr, st) =
+            Schedule
+                { scheduleId = ScheduleId (fromIntegral i)
+                , scheduleExpression = CronExpression expr
+                , scheduleEntrypoint = Entrypoint ep
+                , scheduleHeartbeat = hb
+                , scheduleCreated = cr
+                , scheduleUpdated = upd
+                , scheduleNextRun = nr
+                , scheduleLastRun = lr
+                , scheduleStatus = fromMaybe Queued (textToJobStatus st)
+                }
+
+    setScheduleQueued (ScheduleId sid) nextRun = do
+        env <- HasqlDb (ReaderT return)
+        liftIO $ runPoolSession env $ Session.statement (nextRun, fromIntegral sid) setScheduleQueuedStmt
+
+    getEarliestNextRun = do
+        env <- HasqlDb (ReaderT return)
+        liftIO $ runPoolSession env $ Session.statement () getEarliestNextRunStmt
 
 -- | Format a NominalDiffTime as a PostgreSQL interval string.
 formatInterval :: NominalDiffTime -> Text

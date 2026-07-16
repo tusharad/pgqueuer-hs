@@ -80,3 +80,23 @@ class (Monad m) => MonadPGQueuer m where
     Provides @BEGIN@, @COMMIT@ on success, and @ROLLBACK@ on exception.
     -}
     withTransaction :: m a -> m a
+
+    {- | Insert a cron schedule if it does not already exist.
+    Matches the Python implementation's `insert_schedule` with ON CONFLICT DO NOTHING.
+    -}
+    insertSchedule :: CronExpression -> Entrypoint -> m ()
+
+    {- | Fetch due schedules safely using FOR UPDATE SKIP LOCKED.
+    Atomically transitions them to 'picked' status and returns the Schedule records.
+    -}
+    fetchSchedules :: m [Schedule]
+
+    {- | Reset a schedule's status back to 'queued' after its job has been dispatched.
+    Sets last_run = NOW() and updates next_run to the provided UTCTime.
+    -}
+    setScheduleQueued :: ScheduleId -> UTCTime -> m ()
+
+    {- | Get the earliest next_run among queued schedules.
+    Used by the cron scheduler to determine how long to sleep.
+    -}
+    getEarliestNextRun :: m (Maybe UTCTime)

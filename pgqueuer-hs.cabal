@@ -39,6 +39,7 @@ library
       PGQueuer.Types
       PGQueuer.Worker.Backoff
       PGQueuer.Worker.Buffer
+      PGQueuer.Worker.Cron
   other-modules:
       Paths_pgqueuer_hs
   hs-source-dirs:
@@ -51,6 +52,7 @@ library
     , bytestring >=0.10.4.0 && <0.13
     , containers >=0.6 && <0.8
     , contravariant >=1.5 && <2
+    , cron >=0.7 && <1
     , hasql >=1.6 && <2
     , hasql-pool >=1.2 && <2
     , mtl >=2.2 && <3
@@ -84,6 +86,7 @@ test-suite pgqueuer-hs-test
     , bytestring >=0.10.4.0 && <0.13
     , containers >=0.6 && <0.8
     , contravariant >=1.5 && <2
+    , cron >=0.7 && <1
     , hasql >=1.6 && <2
     , hasql-pool >=1.2 && <2
     , mtl >=2.2 && <3
@@ -115,6 +118,7 @@ benchmark pgqueuer-hs-bench
     , bytestring >=0.10.4.0 && <0.13
     , containers >=0.6 && <0.8
     , contravariant >=1.5 && <2
+    , cron >=0.7 && <1
     , hasql >=1.6 && <2
     , hasql-pool >=1.2 && <2
     , mtl >=2.2 && <3
