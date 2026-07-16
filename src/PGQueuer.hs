@@ -20,6 +20,7 @@ module PGQueuer (
 
     -- * Entrypoint Management
     registerEntrypoint,
+    registerSchedule,
 
     -- * Job Operations
     workerLoop,
@@ -51,6 +52,7 @@ module PGQueuer (
 
 import Control.Concurrent (threadDelay)
 
+import Control.Concurrent.Async (withAsync)
 import Control.Monad (forever)
 import Data.Aeson (Value (String))
 import Data.ByteString (ByteString)
@@ -72,6 +74,7 @@ import PGQueuer.Settings
 import PGQueuer.Types
 import PGQueuer.Worker.Backoff
 import PGQueuer.Worker.Buffer
+import PGQueuer.Worker.Cron (runCronScheduler)
 
 -- | Core state context for managing Queue.
 data QueueManager = QueueManager
@@ -121,6 +124,18 @@ registerEntrypoint qm (Entrypoint ep) handler = do
             { qmEntrypoints = Map.insert ep handler (qmEntrypoints qm)
             }
 
+-- | Register a cron schedule for a specific entrypoint
+registerSchedule ::
+    -- | QueueManager instance
+    QueueManager ->
+    -- | Cron expression (e.g. "*/5 * * * *")
+    CronExpression ->
+    -- | Entrypoint to invoke
+    Entrypoint ->
+    IO ()
+registerSchedule qm expr ep = do
+    Q.insertSchedule (qmConnection qm) (qmSettings qm) expr ep
+
 {- | Continuously dequeue jobs and dispatch them to registered handlers.
 
 Uses STM-backed 'JobStatusLogBuffer' and 'HeartbeatBuffer' to decouple
@@ -145,15 +160,16 @@ workerLoop qm bufConfig params = do
     withBuffer bufConfig logSink $ \logBuf ->
         withBuffer bufConfig hbSink $ \hbBuf ->
             withBuffer bufConfig retrySink $ \retryBuf ->
-                forever $ do
-                    jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
-                    if null jobs
-                        then threadDelay 1000000
-                        else do
-                            -- Buffer heartbeats for all picked jobs
-                            mapM_ (add hbBuf . jobId) jobs
-                            -- Dispatch and buffer ACKs or Retries
-                            mapM_ (dispatchJob qm logBuf retryBuf paramMap) jobs
+                withAsync (runCronScheduler conn settings) $ \_cronAsync ->
+                    forever $ do
+                        jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
+                        if null jobs
+                            then threadDelay 1000000
+                            else do
+                                -- Buffer heartbeats for all picked jobs
+                                mapM_ (add hbBuf . jobId) jobs
+                                -- Dispatch and buffer ACKs or Retries
+                                mapM_ (dispatchJob qm logBuf retryBuf paramMap) jobs
 
 {- | Dispatch a job to its handler and buffer the result.
 | Dispatch a job to its handler and buffer the result.

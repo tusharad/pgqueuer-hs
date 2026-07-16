@@ -26,6 +26,7 @@ dependencies:
 - bytestring >= 0.10.4.0 && < 0.13
 - containers >= 0.6 && < 0.8
 - contravariant >= 1.5 && < 2
+- cron >= 0.7 && < 1
 - hasql >= 1.6 && < 2
 - hasql-pool >= 1.2 && < 2
 - mtl >= 2.2 && < 3

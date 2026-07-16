@@ -14,11 +14,16 @@ module PGQueuer.Query (
     jobStatusById,
     clearQueue,
     listFailedJobs,
+    insertSchedule,
+    fetchSchedules,
+    setScheduleQueued,
+    getEarliestNextRun,
 ) where
 
 import Data.Aeson (Value)
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Time (NominalDiffTime, UTCTime)
@@ -422,3 +427,79 @@ listFailedJobs conn settings limit = do
                 , "LIMIT " <> T.pack (show limit)
                 ]
     query_ conn (textToQuery q)
+
+-- | Insert a schedule
+insertSchedule :: Connection -> DBSettings -> CronExpression -> Entrypoint -> IO ()
+insertSchedule conn _ (CronExpression expr) (Entrypoint ep) = do
+    let q =
+            T.unlines
+                [ "INSERT INTO pgqueuer_schedules (expression, entrypoint)"
+                , "VALUES (?, ?)"
+                , "ON CONFLICT (expression, entrypoint) DO NOTHING"
+                ]
+    _ <- execute conn (textToQuery q) (expr, ep)
+    return ()
+
+-- | Fetch schedules that are due
+fetchSchedules :: Connection -> DBSettings -> IO [Schedule]
+fetchSchedules conn _ = do
+    let q =
+            T.unlines
+                [ "UPDATE pgqueuer_schedules"
+                , "SET status = 'picked',"
+                , "    updated = NOW(),"
+                , "    heartbeat = NOW()"
+                , "WHERE id IN ("
+                , "    SELECT id"
+                , "    FROM pgqueuer_schedules"
+                , "    WHERE status = 'queued'"
+                , "      AND next_run <= NOW()"
+                , "    ORDER BY id ASC"
+                , "    FOR UPDATE SKIP LOCKED"
+                , ")"
+                , "RETURNING id, expression, entrypoint, heartbeat, created, updated, next_run, last_run, status::text"
+                ]
+    rows <- query_ conn (textToQuery q)
+    return $ map mapScheduleRow rows
+  where
+    mapScheduleRow (i, expr, ep, hb, cr, upd, nr, lr, st) =
+        Schedule
+            { scheduleId = ScheduleId i
+            , scheduleExpression = CronExpression expr
+            , scheduleEntrypoint = Entrypoint ep
+            , scheduleHeartbeat = hb
+            , scheduleCreated = cr
+            , scheduleUpdated = upd
+            , scheduleNextRun = nr
+            , scheduleLastRun = lr
+            , scheduleStatus = fromMaybe Queued (textToJobStatus st)
+            }
+
+-- | Set schedule back to queued and update next run
+setScheduleQueued :: Connection -> DBSettings -> ScheduleId -> UTCTime -> IO ()
+setScheduleQueued conn _ (ScheduleId sid) nextRun = do
+    let q =
+            T.unlines
+                [ "UPDATE pgqueuer_schedules"
+                , "SET status = 'queued',"
+                , "    updated = NOW(),"
+                , "    last_run = NOW(),"
+                , "    next_run = ?"
+                , "WHERE id = ?"
+                ]
+    _ <- execute conn (textToQuery q) (nextRun, sid)
+    return ()
+
+-- | Get earliest next_run
+getEarliestNextRun :: Connection -> DBSettings -> IO (Maybe UTCTime)
+getEarliestNextRun conn _ = do
+    let q =
+            T.unlines
+                [ "SELECT MIN(next_run)"
+                , "FROM pgqueuer_schedules"
+                , "WHERE status = 'queued'"
+                ]
+    rows <- query_ conn (textToQuery q) :: IO [Only (Maybe UTCTime)]
+    case rows of
+        [Only mbTime] -> return mbTime
+        _ -> return Nothing

@@ -8,9 +8,11 @@ module PGQueuer.Types (
     JobId (..),
     ScheduleId (..),
     Entrypoint (..),
+    CronExpression (..),
     Channel (..),
     EntrypointExecutionParameter (..),
     Job (..),
+    Schedule (..),
     JobStatus (..),
     QueueStatistics (..),
     OnFailure (..),
@@ -19,6 +21,7 @@ module PGQueuer.Types (
     defaultHeartbeatTimeout,
     defaultBatchSize,
     jobStatusToText,
+    textToJobStatus,
     defaultChannel,
     BackoffStrategy (..),
     Jitter (..),
@@ -136,6 +139,19 @@ data Job = Job
     }
     deriving stock (Show, Eq, Generic)
 
+data Schedule = Schedule
+    { scheduleId :: ScheduleId
+    , scheduleExpression :: CronExpression
+    , scheduleEntrypoint :: Entrypoint
+    , scheduleHeartbeat :: UTCTime
+    , scheduleCreated :: UTCTime
+    , scheduleUpdated :: UTCTime
+    , scheduleNextRun :: UTCTime
+    , scheduleLastRun :: Maybe UTCTime
+    , scheduleStatus :: JobStatus
+    }
+    deriving stock (Show, Eq, Generic)
+
 data LogEntry = LogEntry
     { logCreated :: UTCTime
     , logJobId :: JobId
@@ -161,19 +177,6 @@ data LogStatistics = LogStatistics
     , logStatsEntrypoint :: Entrypoint
     , logStatsPriority :: Int
     , logStatsStatus :: JobStatus
-    }
-    deriving stock (Show, Eq, Generic)
-
-data Schedule = Schedule
-    { scheduleId :: ScheduleId
-    , scheduleExpression :: CronExpression
-    , scheduleEntrypoint :: Entrypoint
-    , scheduleHeartbeat :: UTCTime
-    , scheduleCreated :: UTCTime
-    , scheduleUpdated :: UTCTime
-    , scheduleNextRun :: UTCTime
-    , scheduleLastRun :: Maybe UTCTime
-    , scheduleStatus :: JobStatus
     }
     deriving stock (Show, Eq, Generic)
 
