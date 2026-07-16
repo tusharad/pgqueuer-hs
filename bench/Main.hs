@@ -31,6 +31,7 @@ import PGQueuer.Core.Monad
 import PGQueuer.Schema (install, uninstall)
 import PGQueuer.Settings (defaultDBSettings)
 import PGQueuer.Types
+import PGQueuer.Worker.Buffer
 import System.IO (hFlush, stdout)
 
 -- ============================================================================
@@ -180,6 +181,39 @@ benchHighCardinalityGrouped dbEnv = do
                 loop
     return loop
 
+{- | Run the buffered batched-mode workload: batch_size=10, 1000 jobs.
+Uses STM buffers for both job status logging and heartbeats.
+-}
+benchBufferedBatched :: HasqlDbEnv -> IO (IO ())
+benchBufferedBatched dbEnv = do
+    let ep = Entrypoint "bench_buffered"
+        params = [EntrypointExecutionParameter ep 0]
+        jobCount = 1000 :: Int
+
+    -- Enqueue all jobs
+    forM_ [1 .. jobCount] $ \_ ->
+        runHasqlDb dbEnv $
+            enqueue ep Nothing 0 Nothing Nothing Nothing
+
+    -- Build the dequeue + buffered-ACK loop
+    qmId <- nextRandom
+    let loop = do
+            let logSink items = runHasqlDb dbEnv $ logJobs items
+                hbSink ids = runHasqlDb dbEnv $ updateHeartbeat ids
+            withBuffer defaultBufferConfig logSink $ \logBuf ->
+                withBuffer defaultBufferConfig hbSink $ \hbBuf -> do
+                    let innerLoop = do
+                            jobs <- runHasqlDb dbEnv $ dequeue 10 params qmId Nothing 30
+                            unless (null jobs) $ do
+                                -- Buffer heartbeats
+                                mapM_ (add hbBuf . jobId) jobs
+                                mapM_ (add hbBuf . jobId) jobs
+                                -- Buffer ACKs
+                                mapM_ (\j -> add logBuf (jobId j, Successful, Nothing)) jobs
+                                innerLoop
+                    innerLoop
+    return loop
+
 -- ============================================================================
 -- Telemetry reporting
 -- ============================================================================
@@ -311,6 +345,21 @@ main = do
         postSnap <- captureSnapshot dbEnv
         let elapsed = realToFrac (diffUTCTime endTime startTime) :: Double
         printTelemetryReport "high-cardinality grouped (2.5k groups)" 2500 preSnap postSnap elapsed
+
+    putStrLn ""
+
+    -- Profile 4: Buffered Batched
+    do
+        resetSchema
+        runBench <- benchBufferedBatched dbEnv
+        quietBenchDb
+        preSnap <- captureSnapshot dbEnv
+        startTime <- getCurrentTime
+        runBench
+        endTime <- getCurrentTime
+        postSnap <- captureSnapshot dbEnv
+        let elapsed = realToFrac (diffUTCTime endTime startTime) :: Double
+        printTelemetryReport "buffered batched (batch_size=10, STM)" 1000 preSnap postSnap elapsed
 
     putStrLn ""
     putStrLn "============================================"

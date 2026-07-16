@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {- |
 Module      : PGQueuer
 Description : Main interface for the PGQueuer job queue ecosystem.
@@ -44,10 +46,11 @@ module PGQueuer (
     -- * Re-exported modules
     module PGQueuer.Types,
     module PGQueuer.Settings,
+    module PGQueuer.Worker.Buffer,
 ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (bracket)
+import Control.Exception (SomeException, bracket, catch)
 import Control.Monad (forever)
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
@@ -63,6 +66,7 @@ import qualified PGQueuer.Query as Q
 import PGQueuer.Schema (install, uninstall, verifyStructure_)
 import PGQueuer.Settings
 import PGQueuer.Types
+import PGQueuer.Worker.Buffer
 
 -- | Core state context for managing Queue.
 data QueueManager = QueueManager
@@ -112,19 +116,46 @@ registerEntrypoint qm (Entrypoint ep) handler = do
             { qmEntrypoints = Map.insert ep handler (qmEntrypoints qm)
             }
 
--- | Continuously dequeue jobs and dispatch them to registered handlers.
-workerLoop :: QueueManager -> [EntrypointExecutionParameter] -> IO ()
-workerLoop qm params = forever $ do
-    jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
-    if null jobs
-        then threadDelay 1000000
-        else mapM_ (dispatchJob qm) jobs
+{- | Continuously dequeue jobs and dispatch them to registered handlers.
 
-dispatchJob :: QueueManager -> Job -> IO ()
-dispatchJob qm job =
+Uses STM-backed 'JobStatusLogBuffer' and 'HeartbeatBuffer' to decouple
+worker threads from database round-trips. Instead of calling 'logJobs'
+and 'updateHeartbeat' synchronously for each batch, this loop pushes
+results into STM buffers. Dedicated background flusher threads drain
+the buffers and issue bulk database writes when either the buffer
+overflows or a timer interval expires.
+
+Both buffers are cleanly drained on exit via 'withBuffer' brackets,
+ensuring no data loss during graceful shutdown.
+-}
+workerLoop :: QueueManager -> BufferConfig -> [EntrypointExecutionParameter] -> IO ()
+workerLoop qm bufConfig params = do
+    let conn = qmConnection qm
+        settings = qmSettings qm
+        logSink = Q.logJobs conn settings
+        hbSink = Q.updateHeartbeat conn settings
+    withBuffer bufConfig logSink $ \logBuf ->
+        withBuffer bufConfig hbSink $ \hbBuf ->
+            forever $ do
+                jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
+                if null jobs
+                    then threadDelay 1000000
+                    else do
+                        -- Buffer heartbeats for all picked jobs
+                        mapM_ (add hbBuf . jobId) jobs
+                        -- Dispatch and buffer ACKs
+                        mapM_ (dispatchJob qm logBuf) jobs
+
+-- | Dispatch a job to its handler and buffer the result.
+dispatchJob :: QueueManager -> JobStatusLogBuffer -> Job -> IO ()
+dispatchJob qm logBuf job =
     case Map.lookup entrypointName (qmEntrypoints qm) of
         Nothing -> fail $ "No handler registered for entrypoint: " ++ show entrypointName
-        Just handler -> handler job
+        Just handler -> do
+            (handler job >> add logBuf (jobId job, Successful, Nothing))
+                `catch` ( \(_ :: SomeException) ->
+                            add logBuf (jobId job, Failed, Nothing)
+                        )
   where
     Entrypoint entrypointName = jobEntrypoint job
 

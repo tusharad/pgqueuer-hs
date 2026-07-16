@@ -47,7 +47,7 @@ runApp = do
         eInstalled <- verifyStructure qm
         when (isLeft eInstalled) (installSchema qm)
         -- Ensure the database tables exist
-        replicateM_ 2 (forkIO $ workerLoop qm epParams)
+        replicateM_ 2 (forkIO $ workerLoop qm defaultBufferConfig epParams)
         submitJob qm Student (CalculationPayload 1 "CS" [10, 20, 30])
         submitJob qm Student (CalculationPayload 2 "CS" [])
         submitJob qm Professor (CalculationPayload 3 "Physics" [100, 200, 300])
