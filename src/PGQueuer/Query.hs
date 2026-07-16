@@ -7,7 +7,7 @@ module PGQueuer.Query (
     logJobs,
     queueSize,
     queuedWork,
-    retryJob,
+    retryJobs,
     requeueJobs,
     markJobAsCancelled,
     updateHeartbeat,
@@ -18,9 +18,10 @@ module PGQueuer.Query (
 
 import Data.Aeson (Value)
 import qualified Data.ByteString.Lazy as BL
+import Data.Int (Int32)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
-import Data.Time (NominalDiffTime, addUTCTime)
+import Data.Time (NominalDiffTime, UTCTime)
 import Data.UUID (UUID)
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.Types (PGArray (..), Query (..))
@@ -312,28 +313,34 @@ queuedWork conn settings entrypoints = do
         [Only count] -> return count
         _ -> return 0
 
--- | Retry a failed job
-retryJob ::
+-- | Retry failed jobs in bulk
+retryJobs ::
     Connection ->
     DBSettings ->
-    Job ->
-    NominalDiffTime -> -- delay
-    Maybe Value -> -- traceback
+    [(JobId, UTCTime, Int32)] -> -- (job_id, newExecuteAfter, newAttempts)
     IO ()
-retryJob conn settings job delay _traceback = do
-    let newExecuteAfter = addUTCTime delay (jobExecuteAfter job)
-        newAttempts = jobAttempts job + 1
+retryJobs conn settings updates = do
+    let executeAfters = map (\(_, ea, _) -> ea) updates
+        attempts = map (\(_, _, a) -> a) updates
+        jobIds = map (\(JobId i, _, _) -> i) updates
         q =
             T.unlines
-                [ "UPDATE " <> queueTable settings
+                [ "WITH updates AS ("
+                , "    SELECT"
+                , "        UNNEST(?::timestamptz[]) AS execute_after,"
+                , "        UNNEST(?::integer[])     AS attempts,"
+                , "        UNNEST(?::integer[])     AS id"
+                , ")"
+                , "UPDATE " <> queueTable settings <> " q"
                 , "SET status = 'queued',"
-                , "    execute_after = ?,"
-                , "    attempts = ?,"
+                , "    execute_after = u.execute_after,"
+                , "    attempts = u.attempts,"
                 , "    queue_manager_id = NULL,"
                 , "    updated = NOW()"
-                , "WHERE id = ?"
+                , "FROM updates u"
+                , "WHERE q.id = u.id"
                 ]
-    _ <- execute conn (textToQuery q) (newExecuteAfter, newAttempts, jobId job)
+    _ <- execute conn (textToQuery q) (PGArray executeAfters, PGArray attempts, PGArray jobIds)
     return ()
 
 -- | Requeue multiple jobs

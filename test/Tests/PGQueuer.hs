@@ -70,7 +70,7 @@ enqueueDequeueJobs =
     testCase "Enqueue jobs should have entry in PGQ table" $ do
         withFreshQueue $ \qm -> do
             let ep = Entrypoint "hello"
-            let params = [EntrypointExecutionParameter ep 0]
+            let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
             qm1 <- registerEntrypoint qm ep (\_ -> pure ())
             _ <- enqueue qm1 ep Nothing 0 Nothing Nothing Nothing
             stats <- getQueueSize qm1
@@ -89,7 +89,7 @@ enqueueDequeueMultipleJobs =
     testCase "Enqueue multiple jobs dequeue them" $ do
         withFreshQueue $ \qm -> do
             let ep = Entrypoint "hello"
-            let params = [EntrypointExecutionParameter ep 0]
+            let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
             qm1 <- registerEntrypoint qm ep (\_ -> pure ())
             _ <-
                 enqueueMultiple
@@ -116,7 +116,7 @@ logAndListJobs =
     testCase "Update job status, retry, requeue and clear queue" $ do
         withFreshQueue $ \qm -> do
             let ep = Entrypoint "hello"
-            let params = [EntrypointExecutionParameter ep 0]
+            let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
             qm1 <- registerEntrypoint qm ep (\_ -> pure ())
             jobIds <-
                 enqueueMultiple
@@ -140,7 +140,7 @@ logAndListJobs =
                     failedJobs <- listFailedJobs qm1 10
                     expectOne "Need exactly one failed job" failedJobs $ \failedJob -> do
                         assertEqual "failed job id mismatch" (jobId job1) (jobId failedJob)
-                        retryJob qm1 failedJob 0 Nothing
+                        retryJobs qm1 [(jobId failedJob, jobExecuteAfter failedJob, fromIntegral (jobAttempts failedJob + 1))]
 
                     retryStatus <- listJobStatusById qm1 [jobId job1]
                     expectOne "retry status lookup failed" retryStatus $ \(_, status) ->
@@ -172,7 +172,7 @@ roundTripJSONPayload = do
     testCase "Enqueue jobs should have entry in PGQ table" $ do
         withFreshQueue $ \qm -> do
             let ep = Entrypoint "hello"
-            let params = [EntrypointExecutionParameter ep 0]
+            let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
             qm1 <- registerEntrypoint qm ep (\_ -> pure ())
             let payload = encode $ BasicType "Hello" 25
             _ <- enqueue qm1 ep (Just payload) 0 Nothing Nothing Nothing

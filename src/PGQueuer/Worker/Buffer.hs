@@ -41,9 +41,11 @@ module PGQueuer.Worker.Buffer (
 
     -- * Specialized sinks
     JobStatusLogBuffer,
-    HeartbeatBuffer,
     mkJobStatusLogBuffer,
+    HeartbeatBuffer,
     mkHeartbeatBuffer,
+    RetryBuffer,
+    mkRetryBuffer,
 ) where
 
 import Control.Concurrent.Async (async, uninterruptibleCancel)
@@ -51,6 +53,8 @@ import Control.Concurrent.STM
 import Control.Exception (SomeException, bracket, catch)
 import Control.Monad (unless, void, when)
 import Data.Aeson (Value)
+import Data.Int (Int32)
+import Data.Time (UTCTime)
 import PGQueuer.Types (JobId, JobStatus)
 
 -- ============================================================================
@@ -296,3 +300,15 @@ mkHeartbeatBuffer ::
     ([JobId] -> IO ()) ->
     IO HeartbeatBuffer
 mkHeartbeatBuffer = newBuffer
+
+{- | A buffer specialized for job retries.
+Buffers @(JobId, UTCTime, Int32)@ tuples for bulk retry update.
+-}
+type RetryBuffer = TimedOverflowBuffer (JobId, UTCTime, Int32)
+
+-- | Create a 'RetryBuffer' with the given flush action.
+mkRetryBuffer ::
+    BufferConfig ->
+    ([(JobId, UTCTime, Int32)] -> IO ()) ->
+    IO RetryBuffer
+mkRetryBuffer = newBuffer

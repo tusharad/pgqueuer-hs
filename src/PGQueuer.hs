@@ -28,7 +28,7 @@ module PGQueuer (
     dequeue,
     markJobAsCancelled,
     requeueJobs,
-    retryJob,
+    retryJobs,
     updateHeartbeat,
     logJobs,
 
@@ -50,22 +50,27 @@ module PGQueuer (
 ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, bracket, catch)
+
 import Control.Monad (forever)
-import Data.Aeson (Value)
+import Data.Aeson (Value (String))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
+import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
-import Data.Time (NominalDiffTime)
+import qualified Data.Text as T
+import Data.Time (NominalDiffTime, UTCTime)
+import Data.Time.Clock (addUTCTime, getCurrentTime)
 import Data.UUID (UUID)
 import Database.PostgreSQL.Simple (Connection, close, connectPostgreSQL)
+import UnliftIO.Exception (SomeException, bracket, catch, fromException)
 
 import qualified PGQueuer.Query as Q
 import PGQueuer.Schema (install, uninstall, verifyStructure_)
 import PGQueuer.Settings
 import PGQueuer.Types
+import PGQueuer.Worker.Backoff
 import PGQueuer.Worker.Buffer
 
 -- | Core state context for managing Queue.
@@ -134,30 +139,69 @@ workerLoop qm bufConfig params = do
         settings = qmSettings qm
         logSink = Q.logJobs conn settings
         hbSink = Q.updateHeartbeat conn settings
+        retrySink = Q.retryJobs conn settings
+        -- Build a map of execution parameters for quick lookup
+        paramMap = Map.fromList [(paramEntrypoint p, p) | p <- params]
     withBuffer bufConfig logSink $ \logBuf ->
         withBuffer bufConfig hbSink $ \hbBuf ->
-            forever $ do
-                jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
-                if null jobs
-                    then threadDelay 1000000
-                    else do
-                        -- Buffer heartbeats for all picked jobs
-                        mapM_ (add hbBuf . jobId) jobs
-                        -- Dispatch and buffer ACKs
-                        mapM_ (dispatchJob qm logBuf) jobs
+            withBuffer bufConfig retrySink $ \retryBuf ->
+                forever $ do
+                    jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
+                    if null jobs
+                        then threadDelay 1000000
+                        else do
+                            -- Buffer heartbeats for all picked jobs
+                            mapM_ (add hbBuf . jobId) jobs
+                            -- Dispatch and buffer ACKs or Retries
+                            mapM_ (dispatchJob qm logBuf retryBuf paramMap) jobs
 
--- | Dispatch a job to its handler and buffer the result.
-dispatchJob :: QueueManager -> JobStatusLogBuffer -> Job -> IO ()
-dispatchJob qm logBuf job =
+{- | Dispatch a job to its handler and buffer the result.
+| Dispatch a job to its handler and buffer the result.
+-}
+dispatchJob :: QueueManager -> JobStatusLogBuffer -> RetryBuffer -> Map Entrypoint EntrypointExecutionParameter -> Job -> IO ()
+dispatchJob qm logBuf retryBuf paramMap job =
     case Map.lookup entrypointName (qmEntrypoints qm) of
         Nothing -> fail $ "No handler registered for entrypoint: " ++ show entrypointName
         Just handler -> do
             (handler job >> add logBuf (jobId job, Successful, Nothing))
-                `catch` ( \(_ :: SomeException) ->
-                            add logBuf (jobId job, Failed, Nothing)
-                        )
+                `catch` \e -> handleJobException e
   where
     Entrypoint entrypointName = jobEntrypoint job
+    epParam = Map.lookup (jobEntrypoint job) paramMap
+
+    handleJobException :: SomeException -> IO ()
+    handleJobException e = do
+        -- Check if it's a permanent exception
+        case fromException e of
+            Just (JobPermanentException msg) ->
+                add logBuf (jobId job, Failed, Just $ String msg)
+            Nothing -> do
+                -- It's either a JobRetryableException or SomeException.
+                let msg = case fromException e of
+                        Just (JobRetryableException m) -> m
+                        Nothing -> T.pack $ show e
+
+                -- Route to retry or DLQ
+                case epParam of
+                    Nothing ->
+                        -- No param means no retry config, default to failed
+                        add logBuf (jobId job, Failed, Just $ String msg)
+                    Just param -> do
+                        let currentAttempts = jobAttempts job
+                            maxAttempts = paramMaxAttempts param
+                        if currentAttempts + 1 >= maxAttempts
+                            then add logBuf (jobId job, Failed, Just $ String msg)
+                            else do
+                                let strategy = paramBackoffStrategy param
+                                    jitter = paramJitter param
+                                    baseDelay = calculateBackoff strategy (currentAttempts + 1)
+
+                                jitteredDelay <- applyJitter jitter baseDelay
+                                now <- getCurrentTime
+                                let newExecuteAfter = addUTCTime jitteredDelay now
+                                    newAttempts = fromIntegral (currentAttempts + 1) :: Int32
+
+                                add retryBuf (jobId job, newExecuteAfter, newAttempts)
 
 -- ============================================================================
 -- Queue operations (wrappers around Query module)
@@ -271,9 +315,9 @@ updateHeartbeat qm = Q.updateHeartbeat (qmConnection qm) (qmSettings qm)
 requeueJobs :: QueueManager -> [JobId] -> IO ()
 requeueJobs qm = Q.requeueJobs (qmConnection qm) (qmSettings qm)
 
--- | Retry a job
-retryJob :: QueueManager -> Job -> NominalDiffTime -> Maybe Value -> IO ()
-retryJob qm = Q.retryJob (qmConnection qm) (qmSettings qm)
+-- | Retry jobs in bulk
+retryJobs :: QueueManager -> [(JobId, UTCTime, Int32)] -> IO ()
+retryJobs qm = Q.retryJobs (qmConnection qm) (qmSettings qm)
 
 -- ============================================================================
 -- Schema management

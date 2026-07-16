@@ -93,7 +93,7 @@ testEnqueueCapturesJobId mkRunner =
 
             -- Verify the row exists by dequeuing it
             queueMgrId <- nextRandom
-            let params = [EntrypointExecutionParameter (Entrypoint "test_basic") 0]
+            let params = [EntrypointExecutionParameter (Entrypoint "test_basic") 0 5 (Exponential 5 60) FullJitter]
             jobs <-
                 runWith runner $
                     dequeue 10 params queueMgrId Nothing 300
@@ -131,7 +131,7 @@ testConcurrentDequeueSkipLocked mkRunner mkDualRunners =
             -- Create two independent runners for concurrent dequeue
             (runner1, runner2, dualCleanup) <- mkDualRunners conn settings
 
-            let params = [EntrypointExecutionParameter (Entrypoint "concurrent_test") 0]
+            let params = [EntrypointExecutionParameter (Entrypoint "concurrent_test") 0 5 (Exponential 5 60) FullJitter]
 
             qmId1 <- nextRandom
             qmId2 <- nextRandom
@@ -168,7 +168,7 @@ testLogJobsTransitionsStatus mkRunner =
             -- Enqueue and pick a job
             queueMgrId <- nextRandom
             let ep = Entrypoint "log_test"
-            let params = [EntrypointExecutionParameter ep 0]
+            let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
 
             _ <- runWith runner $ enqueue ep Nothing 0 Nothing Nothing Nothing
             jobs <- runWith runner $ dequeue 1 params queueMgrId Nothing 300

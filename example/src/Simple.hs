@@ -100,7 +100,7 @@ processJobsWithTimeout timeoutSecs qm = do
                 dequeue
                     qm
                     10 -- batch size
-                    [EntrypointExecutionParameter (Entrypoint "fetch") 0]
+                    [EntrypointExecutionParameter (Entrypoint "fetch") 0 5 (Exponential 5 60) FullJitter]
                     Nothing
                     300
 

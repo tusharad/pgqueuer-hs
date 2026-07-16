@@ -21,7 +21,7 @@ module PGQueuer.Backend.Hasql.Statements (
     dequeueStmt,
     logJobsStmt,
     updateHeartbeatStmt,
-    retryJobStmt,
+    retryJobsStmt,
     walLsnStmt,
     tableStatsStmt,
 ) where
@@ -332,32 +332,39 @@ updateHeartbeatStmt settings =
     decoder = D.noResult
 
 -- ============================================================================
--- RetryJob Statement
+-- RetryJobs Statement
 -- ============================================================================
 
-{- | Retry a failed job after a specified delay.
+{- | Retry failed jobs after a specified delay.
 
-Parameters: (execute_after, attempts, job_id)
+Parameters: (execute_afters, attempts, job_ids)
 -}
-retryJobStmt :: DBSettings -> Statement (UTCTime, Int32, Int32) ()
-retryJobStmt settings =
+retryJobsStmt :: DBSettings -> Statement (Vector UTCTime, Vector Int32, Vector Int32) ()
+retryJobsStmt settings =
     Statement sql encoder decoder True
   where
     sql =
         TE.encodeUtf8 $
             T.unlines
-                [ "UPDATE " <> queueTable settings
+                [ "WITH updates AS ("
+                , "    SELECT"
+                , "        UNNEST($1::timestamptz[]) AS execute_after,"
+                , "        UNNEST($2::integer[])     AS attempts,"
+                , "        UNNEST($3::integer[])     AS id"
+                , ")"
+                , "UPDATE " <> queueTable settings <> " q"
                 , "SET status = 'queued',"
-                , "    execute_after = $1,"
-                , "    attempts = $2,"
+                , "    execute_after = u.execute_after,"
+                , "    attempts = u.attempts,"
                 , "    queue_manager_id = NULL,"
                 , "    updated = NOW()"
-                , "WHERE id = $3"
+                , "FROM updates u"
+                , "WHERE q.id = u.id"
                 ]
     encoder =
-        ((\(a, _, _) -> a) >$< E.param (E.nonNullable E.timestamptz))
-            <> ((\(_, b, _) -> b) >$< E.param (E.nonNullable E.int4))
-            <> ((\(_, _, c) -> c) >$< E.param (E.nonNullable E.int4))
+        ((\(a, _, _) -> a) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.timestamptz))))
+            <> ((\(_, b, _) -> b) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.int4))))
+            <> ((\(_, _, c) -> c) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.int4))))
     decoder = D.noResult
 
 -- ============================================================================
