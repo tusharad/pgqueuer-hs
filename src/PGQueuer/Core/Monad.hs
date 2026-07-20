@@ -43,6 +43,9 @@ class (Monad m) => MonadPGQueuer m where
         Maybe NominalDiffTime ->
         Maybe Text ->
         Maybe Value ->
+        Maybe JobId ->
+        Maybe Value ->
+        JobStatus ->
         m [JobId]
 
     {- | Dequeue a batch of jobs matching the given entrypoint parameters.
@@ -75,6 +78,11 @@ class (Monad m) => MonadPGQueuer m where
     Provides a list of (JobId, newExecuteAfter, newAttempts).
     -}
     retryJobs :: [(JobId, UTCTime, Int32)] -> m ()
+
+    {- | Query completed children results for a parent job.
+    Returns a list of 'Value' payloads or tracebacks.
+    -}
+    mergedChildResults :: JobId -> m [Value]
 
     {- | Execute an action within a database transaction boundary.
     Provides @BEGIN@, @COMMIT@ on success, and @ROLLBACK@ on exception.

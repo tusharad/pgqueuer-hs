@@ -110,7 +110,7 @@ runPoolSession env session = do
         Right val -> return val
 
 instance MonadPGQueuer HasqlDb where
-    enqueue ep payload priority executeAfter dedupeKey headers = do
+    enqueue ep payload priority executeAfter dedupeKey headers parentId parentState status = do
         env <- HasqlDb (ReaderT return)
         let settings = hdbSettings env
         liftIO $ do
@@ -120,10 +120,13 @@ instance MonadPGQueuer HasqlDb where
                 intervals = V.singleton (fmap formatInterval executeAfter)
                 dedupeKeys = V.singleton dedupeKey
                 headersBs = V.singleton (BL.toStrict . Aeson.encode <$> headers)
+                parentIds = V.singleton ((\(JobId i) -> fromIntegral i :: Int32) <$> parentId)
+                parentStates = V.singleton (BL.toStrict . Aeson.encode <$> parentState)
+                statuses = V.singleton (jobStatusToText status)
             result <-
                 runPoolSession env $
                     Session.statement
-                        (priorities, entrypoints, payloads, intervals, dedupeKeys, headersBs)
+                        (priorities, entrypoints, payloads, intervals, dedupeKeys, headersBs, parentIds, parentStates, statuses)
                         (enqueueStmt settings)
             return $ map (JobId . fromIntegral) (V.toList result)
 
@@ -167,6 +170,13 @@ instance MonadPGQueuer HasqlDb where
                 Session.statement
                     (executeAfters, attempts, ids)
                     (retryJobsStmt settings)
+
+    mergedChildResults (JobId jid) = do
+        env <- HasqlDb (ReaderT return)
+        let settings = hdbSettings env
+        liftIO $ do
+            results <- runPoolSession env $ Session.statement (fromIntegral jid) (mergedChildResultsStmt settings)
+            return (V.toList results)
 
     withTransaction action = do
         env <- HasqlDb (ReaderT return)

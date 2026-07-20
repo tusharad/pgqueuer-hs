@@ -100,7 +100,7 @@ benchUngroupedSingle dbEnv = do
     -- Enqueue all jobs
     forM_ [1 .. jobCount] $ \_ ->
         runHasqlDb dbEnv $
-            enqueue ep Nothing 0 Nothing Nothing Nothing
+            enqueue ep Nothing 0 Nothing Nothing Nothing Nothing Nothing Queued
 
     -- Dequeue one at a time
     qmId <- nextRandom
@@ -130,7 +130,7 @@ benchUngroupedBatched dbEnv = do
     -- Enqueue all jobs
     forM_ [1 .. jobCount] $ \_ ->
         runHasqlDb dbEnv $
-            enqueue ep Nothing 0 Nothing Nothing Nothing
+            enqueue ep Nothing 0 Nothing Nothing Nothing Nothing Nothing Queued
 
     -- Dequeue in batches of 10
     qmId <- nextRandom
@@ -158,7 +158,7 @@ benchHighCardinalityGrouped dbEnv = do
         let ep = Entrypoint (T.pack $ "group_" <> show i)
         void $
             runHasqlDb dbEnv $
-                enqueue ep Nothing 0 Nothing Nothing Nothing
+                enqueue ep Nothing 0 Nothing Nothing Nothing Nothing Nothing Queued
 
     -- Build params for all groups
     let allParams =
@@ -193,7 +193,7 @@ benchBufferedBatched dbEnv = do
     -- Enqueue all jobs
     forM_ [1 .. jobCount] $ \_ ->
         runHasqlDb dbEnv $
-            enqueue ep Nothing 0 Nothing Nothing Nothing
+            enqueue ep Nothing 0 Nothing Nothing Nothing Nothing Nothing Queued
 
     -- Build the dequeue + buffered-ACK loop
     qmId <- nextRandom

@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {- |
 Module      : PGQueuer.Backend.Simple
@@ -27,11 +28,17 @@ where
 
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, ReaderT (..), asks)
-import Database.PostgreSQL.Simple (Connection)
+import Data.Aeson (Value)
+import Data.Int (Int32)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import Database.PostgreSQL.Simple (Connection, Only (..), query)
 import qualified Database.PostgreSQL.Simple as PG
+import Database.PostgreSQL.Simple.Types (Query (..))
 import PGQueuer.Core.Monad (MonadPGQueuer (..))
 import qualified PGQueuer.Query as Q
-import PGQueuer.Settings (DBSettings, defaultDBSettings)
+import PGQueuer.Settings (DBSettings, defaultDBSettings, queueTableLog)
+import PGQueuer.Types (JobId (..))
 
 {- | Environment carrying the connection handle and database settings
 required by the 'SimpleDb' monad.
@@ -66,7 +73,7 @@ runSimpleDb :: SimpleDbEnv -> SimpleDb a -> IO a
 runSimpleDb env (SimpleDb action) = runReaderT action env
 
 instance MonadPGQueuer SimpleDb where
-    enqueue ep payload priority executeAfter dedupeKey headers = do
+    enqueue ep payload priority executeAfter dedupeKey headers parentId parentState status = do
         conn <- asks sdbConnection
         settings <- asks sdbSettings
         liftIO $
@@ -79,6 +86,9 @@ instance MonadPGQueuer SimpleDb where
                 executeAfter
                 dedupeKey
                 headers
+                parentId
+                parentState
+                status
 
     dequeue batchSize params queueMgrId globalLimit heartbeatTimeoutSecs = do
         conn <- asks sdbConnection
@@ -107,6 +117,20 @@ instance MonadPGQueuer SimpleDb where
         conn <- asks sdbConnection
         settings <- asks sdbSettings
         liftIO $ Q.retryJobs conn settings updates
+
+    mergedChildResults (JobId jid) = do
+        conn <- asks sdbConnection
+        settings <- asks sdbSettings
+        liftIO $ do
+            let q =
+                    T.unlines
+                        [ "SELECT traceback"
+                        , "FROM " <> queueTableLog settings
+                        , "WHERE parent_id = ?"
+                        , "  AND traceback IS NOT NULL"
+                        ]
+            results <- query conn (Query $ TE.encodeUtf8 q) (Only (fromIntegral jid :: Int32)) :: IO [Only Value]
+            return (map fromOnly results)
 
     withTransaction action = do
         env <- SimpleDb (ReaderT return)

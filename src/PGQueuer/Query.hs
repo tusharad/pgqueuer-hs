@@ -48,8 +48,11 @@ enqueueSingle ::
     Maybe NominalDiffTime ->
     Maybe Text ->
     Maybe Value ->
+    Maybe JobId ->
+    Maybe Value ->
+    JobStatus ->
     IO [JobId]
-enqueueSingle conn settings entrypoint payload priority executeAfter dedupeKey headers = do
+enqueueSingle conn settings entrypoint payload priority executeAfter dedupeKey headers parentId parentState status = do
     enqueueMultiple
         conn
         settings
@@ -59,6 +62,9 @@ enqueueSingle conn settings entrypoint payload priority executeAfter dedupeKey h
         (maybeToList executeAfter)
         (maybeToList dedupeKey)
         (maybeToList headers)
+        [parentId]
+        [parentState]
+        [status]
   where
     maybeToList Nothing = []
     maybeToList (Just x) = [Just x]
@@ -73,28 +79,34 @@ enqueueMultiple ::
     [Maybe NominalDiffTime] ->
     [Maybe Text] ->
     [Maybe Value] ->
+    [Maybe JobId] ->
+    [Maybe Value] ->
+    [JobStatus] ->
     IO [JobId]
-enqueueMultiple conn settings entrypoints payloads priorities executeAfters dedupeKeys headersList = do
+enqueueMultiple conn settings entrypoints payloads priorities executeAfters dedupeKeys headersList parentIds parentStates statuses = do
     let q =
             T.unlines
                 [ "WITH inserted AS ("
                 , "    INSERT INTO " <> queueTable settings
-                , "    (priority, entrypoint, payload, execute_after, dedupe_key, headers, status)"
+                , "    (priority, entrypoint, payload, execute_after, dedupe_key, headers, parent_id, parent_state, status)"
                 , "    SELECT"
-                , "        p, e, pay, COALESCE(NOW() + ea, NOW()), d, h, 'queued'"
+                , "        p, e, pay, COALESCE(NOW() + ea, NOW()), d, h, pid, pstate, s::pgqueuer_status"
                 , "    FROM UNNEST("
                 , "        ?::int[],"
                 , "        ?::text[],"
                 , "        ?::bytea[],"
                 , "        ?::interval[],"
                 , "        ?::text[],"
-                , "        ?::jsonb[]"
-                , "    ) AS t(p, e, pay, ea, d, h)"
+                , "        ?::jsonb[],"
+                , "        ?::int[],"
+                , "        ?::jsonb[],"
+                , "        ?::text[]"
+                , "    ) AS t(p, e, pay, ea, d, h, pid, pstate, s)"
                 , "    RETURNING id, entrypoint, status, priority"
                 , ")"
                 , "INSERT INTO " <> queueTableLog settings
                 , "(job_id, status, entrypoint, priority)"
-                , "SELECT id, 'queued', entrypoint, priority"
+                , "SELECT id, status, entrypoint, priority"
                 , "FROM inserted"
                 , "RETURNING job_id AS id"
                 ]
@@ -109,6 +121,9 @@ enqueueMultiple conn settings entrypoints payloads priorities executeAfters dedu
             , PGArray executeAfters
             , PGArray dedupeKeys
             , PGArray headersList
+            , PGArray (map (fmap (\(JobId i) -> i)) parentIds)
+            , PGArray parentStates
+            , PGArray (map jobStatusToText statuses)
             ) ::
             IO [Only JobId]
 
@@ -145,7 +160,7 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
                 , "picked AS ("
                 , "    SELECT entrypoint, COUNT(*) AS total"
                 , "    FROM " <> queueTable settings <> " q"
-                , "    WHERE q.queue_manager_id IS NOT NULL"
+                , "    WHERE q.status = 'picked'"
                 , "      AND EXISTS (SELECT 1 FROM params p WHERE p.entrypoint = q.entrypoint)"
                 , "    GROUP BY q.entrypoint"
                 , "),"
@@ -218,7 +233,7 @@ dequeue conn settings batchSize params queueMgrId globalLimit heartbeatTimeoutSe
                 , "    INSERT INTO " <> queueTableLog settings <> " (job_id, status, entrypoint, priority)"
                 , "    SELECT id, status, entrypoint, priority FROM claimed"
                 , ")"
-                , "SELECT id, priority, created, updated, heartbeat, execute_after, status::text AS status, entrypoint, payload, attempts, queue_manager_id, headers"
+                , "SELECT id, priority, created, updated, heartbeat, execute_after, status::text AS status, entrypoint, payload, attempts, queue_manager_id, headers, parent_id, parent_state"
                 , "FROM claimed"
                 , "ORDER BY priority DESC, id ASC"
                 ]
@@ -253,35 +268,51 @@ logJobs conn settings jobStatuses = do
                 , "), deleted AS ("
                 , "    DELETE FROM " <> queueTable settings
                 , "    WHERE id = ANY(SELECT js.id FROM job_status js WHERE js.status != 'failed')"
-                , "    RETURNING id, entrypoint, priority"
+                , "    RETURNING id, entrypoint, priority, parent_id"
                 , "), held AS ("
                 , "    UPDATE " <> queueTable settings
                 , "    SET status = 'failed', updated = NOW(), queue_manager_id = NULL"
                 , "    WHERE id = ANY(SELECT js.id FROM job_status js WHERE js.status = 'failed')"
-                , "    RETURNING id, entrypoint, priority"
+                , "    RETURNING id, entrypoint, priority, parent_id"
                 , "), all_resolved AS ("
-                , "    SELECT id, entrypoint, priority FROM deleted"
+                , "    SELECT id, entrypoint, priority, parent_id FROM deleted"
                 , "    UNION ALL"
-                , "    SELECT id, entrypoint, priority FROM held"
+                , "    SELECT id, entrypoint, priority, parent_id FROM held"
                 , "), merged AS ("
                 , "    SELECT"
                 , "        job_status.id           AS id,"
                 , "        job_status.status       AS status,"
                 , "        job_status.traceback    AS traceback,"
                 , "        all_resolved.entrypoint AS entrypoint,"
-                , "        all_resolved.priority   AS priority"
+                , "        all_resolved.priority   AS priority,"
+                , "        all_resolved.parent_id  AS parent_id"
                 , "    FROM job_status"
                 , "    INNER JOIN all_resolved"
                 , "        ON all_resolved.id = job_status.id"
+                , "), log_insert AS ("
+                , "    INSERT INTO " <> queueTableLog settings <> " ("
+                , "        job_id,"
+                , "        status,"
+                , "        entrypoint,"
+                , "        priority,"
+                , "        traceback,"
+                , "        parent_id"
+                , "    )"
+                , "    SELECT id, status, entrypoint, priority, traceback, parent_id FROM merged"
+                , "    RETURNING parent_id"
+                , "), rollup_parents AS ("
+                , "    SELECT DISTINCT parent_id FROM log_insert WHERE parent_id IS NOT NULL"
+                , "), ready_parents AS ("
+                , "    SELECT rp.parent_id"
+                , "    FROM rollup_parents rp"
+                , "    WHERE NOT EXISTS ("
+                , "        SELECT 1 FROM " <> queueTable settings <> " q WHERE q.parent_id = rp.parent_id"
+                , "          AND q.id NOT IN (SELECT id FROM deleted)"
+                , "    )"
                 , ")"
-                , "INSERT INTO " <> queueTableLog settings <> " ("
-                , "    job_id,"
-                , "    status,"
-                , "    entrypoint,"
-                , "    priority,"
-                , "    traceback"
-                , ")"
-                , "SELECT id, status, entrypoint, priority, traceback FROM merged"
+                , "UPDATE " <> queueTable settings
+                , "SET status = 'queued', updated = NOW()"
+                , "WHERE id IN (SELECT parent_id FROM ready_parents) AND status = 'held'"
                 ]
     _ <- execute conn (textToQuery q) (PGArray jobIds, PGArray statuses, PGArray tracebacks)
     return ()
@@ -420,7 +451,7 @@ listFailedJobs :: Connection -> DBSettings -> Int -> IO [Job]
 listFailedJobs conn settings limit = do
     let q =
             T.unlines
-                [ "SELECT id, priority, created, updated, heartbeat, execute_after, status::text AS status, entrypoint, payload, attempts, queue_manager_id, headers"
+                [ "SELECT id, priority, created, updated, heartbeat, execute_after, status::text AS status, entrypoint, payload, attempts, queue_manager_id, headers, parent_id, parent_state"
                 , "FROM " <> queueTable settings
                 , "WHERE status = 'failed'"
                 , "ORDER BY updated DESC"

@@ -43,7 +43,7 @@ runCronScheduler conn settings = forever $ do
 
         -- Enqueue the job for the cron task
         _ <-
-            Q.enqueueMultiple conn settings [ep] [Nothing] [0] [Nothing] [Nothing] [Nothing]
+            Q.enqueueMultiple conn settings [ep] [Nothing] [0] [Nothing] [Nothing] [Nothing] [Nothing] [Nothing] [Queued]
                 `catch` (\(_ :: SomeException) -> return [])
 
         -- Calculate next run using the cron expression
