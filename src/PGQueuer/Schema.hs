@@ -16,7 +16,7 @@ import PGQueuer.Settings
 -- | Install the schema in the database
 install :: Connection -> DBSettings -> IO ()
 install conn _settings = do
-    _ <- execute_ conn "CREATE TYPE pgqueuer_status AS ENUM ('queued', 'picked', 'successful', 'exception', 'canceled', 'deleted', 'failed');"
+    _ <- execute_ conn "CREATE TYPE pgqueuer_status AS ENUM ('queued', 'picked', 'successful', 'exception', 'canceled', 'deleted', 'failed', 'held');"
     _ <- execute_ conn $ textToQuery queueTableSQL
     _ <- execute_ conn $ textToQuery queueLogTableSQL
     _ <- execute_ conn $ textToQuery statisticsTableSQL
@@ -66,10 +66,14 @@ queueTableSQL =
         , "    dedupe_key TEXT,"
         , "    payload BYTEA,"
         , "    headers JSONB,"
-        , "    attempts INT NOT NULL DEFAULT 0"
+        , "    attempts INT NOT NULL DEFAULT 0,"
+        , "    parent_id INTEGER REFERENCES pgqueuer(id) ON DELETE SET NULL,"
+        , "    parent_state JSONB"
         , ");"
         , "CREATE INDEX IF NOT EXISTS pgqueuer_priority_id_idx ON pgqueuer (priority ASC, id DESC)"
         , "    INCLUDE (id) WHERE status = 'queued';"
+        , "CREATE INDEX IF NOT EXISTS pgqueuer_parent_id_idx ON pgqueuer (parent_id)"
+        , "    WHERE parent_id IS NOT NULL;"
         , "CREATE INDEX IF NOT EXISTS pgqueuer_updated_id_idx ON pgqueuer (updated ASC, id DESC)"
         , "    INCLUDE (id) WHERE status = 'picked';"
         , "CREATE INDEX IF NOT EXISTS pgqueuer_manager_id_idx ON pgqueuer (queue_manager_id)"
@@ -99,7 +103,8 @@ queueLogTableSQL =
         , "    priority INT NOT NULL,"
         , "    entrypoint TEXT NOT NULL,"
         , "    traceback JSONB DEFAULT NULL,"
-        , "    aggregated BOOLEAN DEFAULT FALSE"
+        , "    aggregated BOOLEAN DEFAULT FALSE,"
+        , "    parent_id BIGINT"
         , ");"
         , "CREATE INDEX IF NOT EXISTS pgqueuer_log_not_aggregated ON pgqueuer_log (entrypoint, priority, status, created) WHERE not aggregated;"
         , "CREATE INDEX IF NOT EXISTS pgqueuer_log_created ON pgqueuer_log (created);"

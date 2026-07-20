@@ -28,8 +28,10 @@ module PGQueuer.Backend.Hasql.Statements (
     fetchSchedulesStmt,
     setScheduleQueuedStmt,
     getEarliestNextRunStmt,
+    mergedChildResultsStmt,
 ) where
 
+import qualified Data.Aeson as Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.Functor.Contravariant ((>$<))
@@ -70,7 +72,15 @@ textToJobStatus_ "failed" = Just Failed
 textToJobStatus_ "exception" = Just Exception
 textToJobStatus_ "canceled" = Just Canceled
 textToJobStatus_ "deleted" = Just Deleted
+textToJobStatus_ "held" = Just Held
 textToJobStatus_ _ = Nothing
+
+-- | Decode a JSONB value into Aeson.Value
+jsonbDecoder :: D.Value Aeson.Value
+jsonbDecoder = D.custom $ \_isBinary bs ->
+    case Aeson.decodeStrict bs of
+        Just v -> Right v
+        Nothing -> Left "Invalid JSONB"
 
 -- | Decode a 'Job' from a row.
 jobRow :: D.Row Job
@@ -87,6 +97,8 @@ jobRow =
         <*> (fromIntegral <$> D.column (D.nonNullable D.int4)) -- attempts
         <*> D.column (D.nullable D.uuid) -- queue_manager_id
         <*> D.column (D.nullable D.jsonb) -- headers
+        <*> (fmap (JobId . fromIntegral) <$> D.column (D.nullable D.int4)) -- parent_id
+        <*> D.column (D.nullable D.jsonb) -- parent_state
 
 -- ============================================================================
 -- Enqueue Statement
@@ -98,7 +110,7 @@ Parameters: (priorities, entrypoints, payloads, intervals_text, dedupe_keys, hea
 
 Uses raw SQL with @UNNEST@ arrays to batch-insert jobs.
 -}
-enqueueStmt :: DBSettings -> Statement (Vector Int32, Vector Text, Vector (Maybe ByteString), Vector (Maybe Text), Vector (Maybe Text), Vector (Maybe ByteString)) (Vector Int32)
+enqueueStmt :: DBSettings -> Statement (Vector Int32, Vector Text, Vector (Maybe ByteString), Vector (Maybe Text), Vector (Maybe Text), Vector (Maybe ByteString), Vector (Maybe Int32), Vector (Maybe ByteString), Vector Text) (Vector Int32)
 enqueueStmt settings =
     Statement sql encoder decoder True
   where
@@ -107,32 +119,38 @@ enqueueStmt settings =
             T.unlines
                 [ "WITH inserted AS ("
                 , "    INSERT INTO " <> queueTable settings
-                , "    (priority, entrypoint, payload, execute_after, dedupe_key, headers, status)"
+                , "    (priority, entrypoint, payload, execute_after, dedupe_key, headers, parent_id, parent_state, status)"
                 , "    SELECT"
-                , "        p, e, pay, COALESCE(NOW() + ea::interval, NOW()), d, h, 'queued'"
+                , "        p, e, pay, COALESCE(NOW() + ea::interval, NOW()), d, h, pid, pstate, s::pgqueuer_status"
                 , "    FROM UNNEST("
                 , "        $1::int[],"
                 , "        $2::text[],"
                 , "        $3::bytea[],"
                 , "        $4::text[],"
                 , "        $5::text[],"
-                , "        $6::jsonb[]"
-                , "    ) AS t(p, e, pay, ea, d, h)"
+                , "        $6::jsonb[],"
+                , "        $7::int[],"
+                , "        $8::jsonb[],"
+                , "        $9::text[]"
+                , "    ) AS t(p, e, pay, ea, d, h, pid, pstate, s)"
                 , "    RETURNING id, entrypoint, status, priority"
                 , ")"
                 , "INSERT INTO " <> queueTableLog settings
                 , "(job_id, status, entrypoint, priority)"
-                , "SELECT id, 'queued', entrypoint, priority"
+                , "SELECT id, status, entrypoint, priority"
                 , "FROM inserted"
                 , "RETURNING job_id::int AS id"
                 ]
     encoder =
-        ((\(a, _, _, _, _, _) -> a) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.int4))))
-            <> ((\(_, b, _, _, _, _) -> b) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.text))))
-            <> ((\(_, _, c, _, _, _) -> c) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.bytea))))
-            <> ((\(_, _, _, d, _, _) -> d) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.text))))
-            <> ((\(_, _, _, _, e, _) -> e) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.text))))
-            <> ((\(_, _, _, _, _, f) -> f) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.jsonbBytes))))
+        ((\(a, _, _, _, _, _, _, _, _) -> a) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.int4))))
+            <> ((\(_, b, _, _, _, _, _, _, _) -> b) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.text))))
+            <> ((\(_, _, c, _, _, _, _, _, _) -> c) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.bytea))))
+            <> ((\(_, _, _, d, _, _, _, _, _) -> d) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.text))))
+            <> ((\(_, _, _, _, e, _, _, _, _) -> e) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.text))))
+            <> ((\(_, _, _, _, _, f, _, _, _) -> f) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.jsonbBytes))))
+            <> ((\(_, _, _, _, _, _, g, _, _) -> g) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.int4))))
+            <> ((\(_, _, _, _, _, _, _, h, _) -> h) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.jsonbBytes))))
+            <> ((\(_, _, _, _, _, _, _, _, i) -> i) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.text))))
     decoder = D.rowVector (D.column (D.nonNullable D.int4))
 
 -- ============================================================================
@@ -169,7 +187,7 @@ dequeueStmt settings heartbeatTimeoutSecs =
                 , "picked AS ("
                 , "    SELECT entrypoint, COUNT(*) AS total"
                 , "    FROM " <> queueTable settings <> " q"
-                , "    WHERE q.queue_manager_id IS NOT NULL"
+                , "    WHERE q.status = 'picked'"
                 , "      AND EXISTS (SELECT 1 FROM params p WHERE p.entrypoint = q.entrypoint)"
                 , "    GROUP BY q.entrypoint"
                 , "),"
@@ -242,7 +260,7 @@ dequeueStmt settings heartbeatTimeoutSecs =
                 , "    INSERT INTO " <> queueTableLog settings <> " (job_id, status, entrypoint, priority)"
                 , "    SELECT id, status, entrypoint, priority FROM claimed"
                 , ")"
-                , "SELECT id, priority, created, updated, heartbeat, execute_after, status::text AS status, entrypoint, payload, attempts, queue_manager_id, headers"
+                , "SELECT id, priority, created, updated, heartbeat, execute_after, status::text AS status, entrypoint, payload, attempts, queue_manager_id, headers, parent_id, parent_state"
                 , "FROM claimed"
                 , "ORDER BY priority DESC, id ASC"
                 ]
@@ -291,41 +309,79 @@ logJobsStmt settings =
                 , "), deleted AS ("
                 , "    DELETE FROM " <> queueTable settings
                 , "    WHERE id = ANY(SELECT js.id FROM job_status js WHERE js.status != 'failed')"
-                , "    RETURNING id, entrypoint, priority"
+                , "    RETURNING id, entrypoint, priority, parent_id"
                 , "), held AS ("
                 , "    UPDATE " <> queueTable settings
                 , "    SET status = 'failed', updated = NOW(), queue_manager_id = NULL"
                 , "    WHERE id = ANY(SELECT js.id FROM job_status js WHERE js.status = 'failed')"
-                , "    RETURNING id, entrypoint, priority"
+                , "    RETURNING id, entrypoint, priority, parent_id"
                 , "), all_resolved AS ("
-                , "    SELECT id, entrypoint, priority FROM deleted"
+                , "    SELECT id, entrypoint, priority, parent_id FROM deleted"
                 , "    UNION ALL"
-                , "    SELECT id, entrypoint, priority FROM held"
+                , "    SELECT id, entrypoint, priority, parent_id FROM held"
                 , "), merged AS ("
                 , "    SELECT"
                 , "        job_status.id           AS id,"
                 , "        job_status.status       AS status,"
                 , "        job_status.traceback    AS traceback,"
                 , "        all_resolved.entrypoint AS entrypoint,"
-                , "        all_resolved.priority   AS priority"
+                , "        all_resolved.priority   AS priority,"
+                , "        all_resolved.parent_id  AS parent_id"
                 , "    FROM job_status"
                 , "    INNER JOIN all_resolved"
                 , "        ON all_resolved.id = job_status.id"
                 , ")"
-                , "INSERT INTO " <> queueTableLog settings <> " ("
-                , "    job_id,"
-                , "    status,"
-                , "    entrypoint,"
-                , "    priority,"
-                , "    traceback"
+                , "), log_insert AS ("
+                , "    INSERT INTO " <> queueTableLog settings <> " ("
+                , "        job_id,"
+                , "        status,"
+                , "        entrypoint,"
+                , "        priority,"
+                , "        traceback,"
+                , "        parent_id"
+                , "    )"
+                , "    SELECT id, status, entrypoint, priority, traceback, parent_id FROM merged"
+                , "    RETURNING parent_id"
+                , "), rollup_parents AS ("
+                , "    SELECT DISTINCT parent_id FROM log_insert WHERE parent_id IS NOT NULL"
+                , "), ready_parents AS ("
+                , "    SELECT rp.parent_id"
+                , "    FROM rollup_parents rp"
+                , "    WHERE NOT EXISTS ("
+                , "        SELECT 1 FROM " <> queueTable settings <> " q WHERE q.parent_id = rp.parent_id"
+                , "    )"
                 , ")"
-                , "SELECT id, status, entrypoint, priority, traceback FROM merged"
+                , "UPDATE " <> queueTable settings
+                , "SET status = 'queued', updated = NOW()"
+                , "WHERE id IN (SELECT parent_id FROM ready_parents) AND status = 'held'"
                 ]
     encoder =
         ((\(a, _, _) -> a) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.int4))))
             <> ((\(_, b, _) -> b) >$< E.param (E.nonNullable (E.foldableArray (E.nonNullable E.text))))
             <> ((\(_, _, c) -> c) >$< E.param (E.nonNullable (E.foldableArray (E.nullable E.jsonbBytes))))
     decoder = D.noResult
+
+-- ============================================================================
+-- MergedChildResults Statement
+-- ============================================================================
+
+{- | Query completed children results for a parent job.
+Returns a list of 'Value' tracebacks from pgqueuer_log.
+-}
+mergedChildResultsStmt :: DBSettings -> Statement Int32 (Vector Aeson.Value)
+mergedChildResultsStmt settings =
+    Statement sql encoder decoder True
+  where
+    sql =
+        TE.encodeUtf8 $
+            T.unlines
+                [ "SELECT traceback"
+                , "FROM " <> queueTableLog settings
+                , "WHERE parent_id = $1"
+                , "  AND traceback IS NOT NULL"
+                ]
+    encoder = E.param (E.nonNullable E.int4)
+    decoder = D.rowVector (D.column (D.nonNullable jsonbDecoder))
 
 -- ============================================================================
 -- UpdateHeartbeat Statement

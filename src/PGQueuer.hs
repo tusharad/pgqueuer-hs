@@ -26,6 +26,10 @@ module PGQueuer (
     workerLoop,
     enqueue,
     enqueueMultiple,
+    insertJobTree,
+    JobTree (..),
+    JobNode (..),
+    (<~~),
     dequeue,
     markJobAsCancelled,
     requeueJobs,
@@ -68,6 +72,7 @@ import Data.UUID (UUID)
 import Database.PostgreSQL.Simple (Connection, close, connectPostgreSQL)
 import UnliftIO.Exception (SomeException, bracket, catch, fromException)
 
+import PGQueuer.Backend.Simple (SimpleDbEnv (..), runSimpleDb)
 import qualified PGQueuer.Query as Q
 import PGQueuer.Schema (install, uninstall, verifyStructure_)
 import PGQueuer.Settings
@@ -75,6 +80,8 @@ import PGQueuer.Types
 import PGQueuer.Worker.Backoff
 import PGQueuer.Worker.Buffer
 import PGQueuer.Worker.Cron (runCronScheduler)
+import PGQueuer.Workflow (JobNode (..), JobTree (..), (<~~))
+import qualified PGQueuer.Workflow as Workflow
 
 -- | Core state context for managing Queue.
 data QueueManager = QueueManager
@@ -240,10 +247,19 @@ enqueue ::
     -- | Optional headers for the job
     Maybe Value ->
     IO [JobId]
-enqueue qm =
+enqueue qm entrypoint payload priority executeAfter dedupeKey headers =
     Q.enqueueSingle
         (qmConnection qm)
         (qmSettings qm)
+        entrypoint
+        payload
+        priority
+        executeAfter
+        dedupeKey
+        headers
+        Nothing
+        Nothing
+        Queued
 
 -- | Enqueue multiple jobs
 enqueueMultiple ::
@@ -262,10 +278,24 @@ enqueueMultiple ::
     -- | List of optional headers for the jobs
     [Maybe Value] ->
     IO [JobId]
-enqueueMultiple qm =
+enqueueMultiple qm entrypoints payloads priorities executeAfters dedupeKeys headersList =
     Q.enqueueMultiple
         (qmConnection qm)
         (qmSettings qm)
+        entrypoints
+        payloads
+        priorities
+        executeAfters
+        dedupeKeys
+        headersList
+        (replicate (length entrypoints) Nothing)
+        (replicate (length entrypoints) Nothing)
+        (replicate (length entrypoints) Queued)
+
+-- | Insert a JobTree using the QueueManager
+insertJobTree :: QueueManager -> JobTree -> IO ()
+insertJobTree qm tree =
+    runSimpleDb (SimpleDbEnv (qmConnection qm) (qmSettings qm)) (Workflow.insertJobTree tree)
 
 -- | Dequeue jobs
 dequeue ::

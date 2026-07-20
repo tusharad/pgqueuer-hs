@@ -40,6 +40,7 @@ library
       PGQueuer.Worker.Backoff
       PGQueuer.Worker.Buffer
       PGQueuer.Worker.Cron
+      PGQueuer.Workflow
   other-modules:
       Paths_pgqueuer_hs
   hs-source-dirs:

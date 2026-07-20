@@ -70,6 +70,7 @@ data JobStatus
     | Exception
     | Canceled
     | Deleted
+    | Held
     deriving stock (Show, Eq, Ord, Generic, Bounded, Enum)
 
 jobStatusToText :: JobStatus -> Text
@@ -80,6 +81,7 @@ jobStatusToText Failed = "failed"
 jobStatusToText Exception = "exception"
 jobStatusToText Canceled = "canceled"
 jobStatusToText Deleted = "deleted"
+jobStatusToText Held = "held"
 
 textToJobStatus :: Text -> Maybe JobStatus
 textToJobStatus "queued" = Just Queued
@@ -89,6 +91,7 @@ textToJobStatus "failed" = Just Failed
 textToJobStatus "exception" = Just Exception
 textToJobStatus "canceled" = Just Canceled
 textToJobStatus "deleted" = Just Deleted
+textToJobStatus "held" = Just Held
 textToJobStatus _ = Nothing
 
 instance FromField JobStatus where
@@ -136,6 +139,8 @@ data Job = Job
     , jobAttempts :: Int
     , jobQueueManagerId :: Maybe UUID
     , jobHeaders :: Maybe Value
+    , jobParentId :: Maybe JobId
+    , jobParentState :: Maybe Value
     }
     deriving stock (Show, Eq, Generic)
 
@@ -160,6 +165,7 @@ data LogEntry = LogEntry
     , logEntrypoint :: Entrypoint
     , logTraceback :: Maybe Value
     , logAggregated :: Bool
+    , logParentId :: Maybe JobId
     }
     deriving stock (Show, Eq, Generic)
 
@@ -260,6 +266,8 @@ instance FromRow Job where
             <*> field -- jobAttempts
             <*> field -- jobQueueManagerId
             <*> field -- jobHeaders
+            <*> field -- jobParentId
+            <*> field -- jobParentState
 
 instance FromRow LogEntry where
     fromRow =
@@ -271,6 +279,7 @@ instance FromRow LogEntry where
             <*> field -- logEntrypoint
             <*> field -- logTraceback
             <*> field -- logAggregated
+            <*> field -- logParentId
 
 instance FromRow QueueStatistics where
     fromRow =
