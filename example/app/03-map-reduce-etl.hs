@@ -20,7 +20,7 @@ main = do
         activeWorkers <- newMVar (0 :: Int)
 
         -- Register ProcessBranch entrypoint
-        _ <- registerEntrypoint qm (Entrypoint "ProcessBranch") $ \_payload -> do
+        qm1 <- registerEntrypoint qm (Entrypoint "ProcessBranch") $ \_payload -> do
             -- Increment active workers
             modifyMVar_ activeWorkers (return . (+ 1))
             currentActive <- readMVar activeWorkers
@@ -33,7 +33,7 @@ main = do
             modifyMVar_ activeWorkers (return . subtract 1)
 
         -- Register MasterEOD entrypoint
-        _ <- registerEntrypoint qm (Entrypoint "MasterEOD") $ \_payload -> do
+        qm2 <- registerEntrypoint qm1 (Entrypoint "MasterEOD") $ \_payload -> do
             putStrLn "\n\n======================================="
             putStrLn "MASTER EOD REPORT RUNNING"
             putStrLn "=======================================\n\n"
@@ -61,8 +61,8 @@ main = do
             tree = masterNode <~~ map mkBranch [(1 :: Int) .. 500]
 
         putStrLn "Inserting Job Tree with 1 Master and 500 Branches..."
-        insertJobTree qm tree
+        insertJobTree qm2 tree
 
         -- Start worker loop
         putStrLn "Workers started. Watch the concurrency limit cap at 10..."
-        workerLoop qm defaultBufferConfig execParams
+        workerLoop qm2 defaultBufferConfig execParams

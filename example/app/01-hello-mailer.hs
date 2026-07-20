@@ -25,7 +25,7 @@ main = do
         _ <- verifyStructure qm
 
         -- 3. Register Entrypoint
-        _ <- registerEntrypoint qm (Entrypoint "SendEmail") $ \job -> do
+        qm1 <- registerEntrypoint qm (Entrypoint "SendEmail") $ \job -> do
             case jobPayload job of
                 Just p -> case decode p of
                     Just user -> putStrLn $ "Email sent to " ++ T.unpack (name user) ++ " <" ++ T.unpack (email user) ++ ">"
@@ -35,8 +35,8 @@ main = do
 
         -- 4. Enqueue a Job
         putStrLn "Enqueuing SendEmail job..."
-        _ <- enqueue qm (Entrypoint "SendEmail") (Just $ encode (UserPayload "user@example.com" "Alice")) 0 Nothing Nothing Nothing
+        _ <- enqueue qm1 (Entrypoint "SendEmail") (Just $ encode (UserPayload "user@example.com" "Alice")) 0 Nothing Nothing Nothing
 
         -- 5. Start worker loop (will block, so we'll just let it run for a bit if we want or just block forever)
         putStrLn "Worker started. Processing jobs... (Press Ctrl+C to quit)"
-        workerLoop qm defaultBufferConfig []
+        workerLoop qm1 defaultBufferConfig []

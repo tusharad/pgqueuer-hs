@@ -22,7 +22,7 @@ main = do
         registerSchedule qm (CronExpression "* * * * *") (Entrypoint "ScrapeCurrency")
 
         -- 2. Register the Entrypoint that simulates the flaky API
-        _ <- registerEntrypoint qm (Entrypoint "ScrapeCurrency") $ \_payload -> do
+        qm1 <- registerEntrypoint qm (Entrypoint "ScrapeCurrency") $ \_payload -> do
             now <- getPOSIXTime
             -- Fail pseudo-randomly based on timestamp (simulate 502 Bad Gateway)
             let isFlaky = (round now :: Int) `mod` 5 /= 0
@@ -46,7 +46,7 @@ main = do
         _ <- forkIO $ forever $ do
             threadDelay (30 * 1000 * 1000) -- every 30 seconds
             putStrLn "[Admin] Checking for quarantined jobs..."
-            failedJobs <- listFailedJobs qm 10
+            failedJobs <- listFailedJobs qm1 10
             if null failedJobs
                 then putStrLn "[Admin] No dead jobs found."
                 else do
@@ -58,4 +58,4 @@ main = do
 
         -- 4. Start worker loop
         putStrLn "Worker started with EqualJitter backoff. Processing jobs..."
-        workerLoop qm defaultBufferConfig execParams
+        workerLoop qm1 defaultBufferConfig execParams

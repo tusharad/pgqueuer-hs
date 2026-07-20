@@ -19,15 +19,15 @@ main = do
         _ <- verifyStructure qm
 
         -- 1. Register handlers for ChargeCard, DeductInventory, ShipOrder
-        _ <- registerEntrypoint qm (Entrypoint "ChargeCard") $ \_payload -> do
+        qm1 <- registerEntrypoint qm (Entrypoint "ChargeCard") $ \_payload -> do
             panic <- randomRIO (1, 100 :: Int)
             if panic > 95
                 then throwIO $ JobRetryableException "Random Thread Panic in ChargeCard!"
                 else threadDelay 10000 -- simulate 10ms work
-        _ <- registerEntrypoint qm (Entrypoint "DeductInventory") $ \_payload -> do
+        qm2 <- registerEntrypoint qm1 (Entrypoint "DeductInventory") $ \_payload -> do
             delay <- randomRIO (5000, 20000)
             threadDelay delay -- variable delay
-        _ <- registerEntrypoint qm (Entrypoint "ShipOrder") $ \_payload -> do
+        qm3 <- registerEntrypoint qm2 (Entrypoint "ShipOrder") $ \_payload -> do
             threadDelay 5000
 
         -- 2. Generator Thread: Floods the queue with 5000 orders/sec in batches
@@ -37,7 +37,7 @@ main = do
             let payloads = replicate batchSize (Just "{}")
             let priorities = replicate batchSize 0
             let nothingList = replicate batchSize Nothing
-            _ <- enqueueMultiple qm entrypoints payloads priorities nothingList nothingList nothingList
+            _ <- enqueueMultiple qm3 entrypoints payloads priorities nothingList nothingList nothingList
             threadDelay 100000 -- 100ms sleep, approx 5000/sec
             return ()
 
@@ -45,7 +45,7 @@ main = do
         _ <- forkIO $ forever $ do
             threadDelay 1000000 -- every 1 second
             putStrLn "\n--- [LIVE DASHBOARD] ---"
-            stats <- getQueueSize qm
+            stats <- getQueueSize qm3
             if null stats
                 then putStrLn "Queue is empty."
                 else mapM_ print stats
@@ -68,4 +68,4 @@ main = do
         let chaosBuffer = BufferConfig{bcMaxSize = 1000, bcFlushInterval = 500000}
 
         putStrLn "[Chaos E-Commerce] Starting workers with aggressive 1000-job buffer..."
-        workerLoop qm chaosBuffer execParams
+        workerLoop qm3 chaosBuffer execParams

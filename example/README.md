@@ -6,12 +6,20 @@
 ./example/start-db.sh
 ```
 
+## Run examples
 
-```bash
-stack run -- 03-map-reduce-etl
+```
+stack run hello-mailer
 ```
 
+```
+stack run resilient-scraper
+```
 
-```bash
-./example/start-db.sh
+```
+stack run map-reduce-etl
+```
+
+```
+stack run chaos-ecommerce
 ```
