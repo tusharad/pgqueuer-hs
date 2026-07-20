@@ -46,6 +46,7 @@ module PGQueuer (
     listJobStatusById,
 
     -- * Schema management
+    setupSchema,
     verifyStructure,
     installSchema,
     uninstallSchema,
@@ -430,6 +431,14 @@ retryJobs qm = Q.retryJobs (qmConnection qm) (qmSettings qm)
 -- ============================================================================
 -- Schema management
 -- ============================================================================
+
+-- | Idempotent function to verify if schema exists, and if not, install it.
+setupSchema :: QueueManager -> IO ()
+setupSchema qm = do
+    result <- verifyStructure qm
+    case result of
+        Left _ -> installSchema qm
+        Right () -> return ()
 
 -- | Verify schema structure
 verifyStructure :: QueueManager -> IO (Either String ())
