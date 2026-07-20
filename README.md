@@ -28,7 +28,23 @@ The Haskell port uses the **exact same schema** as Python pgqueuer:
 
 ## Examples
 
-Fully working examples are available in `./example` directory
+Fully working examples are available in the `./example` directory.
+
+To run the examples, first spin up the PostgreSQL database (requires Docker or Podman):
+```bash
+make db-up
+```
+
+Then, navigate to the example directory and use `cabal run` to execute the applications. For example:
+```bash
+cd example
+cabal run hello-mailer
+cabal run resilient-scraper
+cabal run map-reduce-etl
+cabal run chaos-ecommerce
+```
+
+*(Note: The applications will automatically verify and install the required database schema on startup).*
 
 ## Installation
 
@@ -61,8 +77,7 @@ main = do
     queueMgrId <- nextRandom
     withQueueManager conStr defaultDBSettings queueMgrId $ \qm -> do
         -- setup schema
-        eInstalled <- verifyStructure qm
-        when (isLeft eInstalled) (installSchema qm)
+        setupSchema qm
 
         -- Enqueue a job
         let ep = Entrypoint "hello"

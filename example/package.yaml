@@ -40,27 +40,35 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 
-library:
-  source-dirs: src
-
 executables:
-  example-exe:
-    main:                Main.hs
-    source-dirs:         app
+  hello-mailer:
+    main:                app/01-hello-mailer.hs
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - example
+    - random
 
-tests:
-  example-test:
-    main:                Spec.hs
-    source-dirs:         test
+  resilient-scraper:
+    main:                app/02-resilient-scraper.hs
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+
+  map-reduce-etl:
+    main:                app/03-map-reduce-etl.hs
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+
+  chaos-ecommerce:
+    main:                app/04-chaos-ecommerce.hs
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - example
+    - random

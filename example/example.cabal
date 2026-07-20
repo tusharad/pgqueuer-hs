@@ -23,19 +23,51 @@ source-repository head
   type: git
   location: https://github.com/githubuser/example
 
-library
-  exposed-modules:
-      HPCScheduler
-      Lib
-      Python
-      Simple
+executable chaos-ecommerce
+  main-is: app/04-chaos-ecommerce.hs
   other-modules:
       Paths_example
   autogen-modules:
       Paths_example
-  hs-source-dirs:
-      src
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , pgqueuer-hs
+    , postgresql-simple
+    , random
+    , text
+    , time
+    , uuid
+  default-language: Haskell2010
+
+executable hello-mailer
+  main-is: app/01-hello-mailer.hs
+  other-modules:
+      Paths_example
+  autogen-modules:
+      Paths_example
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , pgqueuer-hs
+    , postgresql-simple
+    , random
+    , text
+    , time
+    , uuid
+  default-language: Haskell2010
+
+executable map-reduce-etl
+  main-is: app/03-map-reduce-etl.hs
+  other-modules:
+      Paths_example
+  autogen-modules:
+      Paths_example
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , base >=4.7 && <5
@@ -47,42 +79,17 @@ library
     , uuid
   default-language: Haskell2010
 
-executable example-exe
-  main-is: Main.hs
+executable resilient-scraper
+  main-is: app/02-resilient-scraper.hs
   other-modules:
       Paths_example
   autogen-modules:
       Paths_example
-  hs-source-dirs:
-      app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , base >=4.7 && <5
     , bytestring
-    , example
-    , pgqueuer-hs
-    , postgresql-simple
-    , text
-    , time
-    , uuid
-  default-language: Haskell2010
-
-test-suite example-test
-  type: exitcode-stdio-1.0
-  main-is: Spec.hs
-  other-modules:
-      Paths_example
-  autogen-modules:
-      Paths_example
-  hs-source-dirs:
-      test
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      aeson
-    , base >=4.7 && <5
-    , bytestring
-    , example
     , pgqueuer-hs
     , postgresql-simple
     , text
