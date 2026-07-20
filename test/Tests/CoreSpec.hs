@@ -6,13 +6,16 @@ module Tests.CoreSpec (
     coreTests,
     Runner (..),
     connStr,
-) where
+)
+where
 
 import Control.Concurrent.Async (async, wait)
 import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Aeson (Value (String))
 import Data.ByteString (ByteString)
 import Data.List (nub)
+import Data.Maybe (listToMaybe)
 import Data.UUID.V4 (nextRandom)
 import Database.PostgreSQL.Simple (Connection)
 import qualified Database.PostgreSQL.Simple as PG
@@ -20,6 +23,7 @@ import PGQueuer.Core.Monad
 import PGQueuer.Schema (install, uninstall)
 import PGQueuer.Settings (DBSettings, defaultDBSettings)
 import PGQueuer.Types
+import PGQueuer.Workflow (JobNode (..), JobTree (..), insertJobTree, (<~~))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -39,9 +43,9 @@ newtype Runner = Runner
 {- | Core integration tests parameterized over any 'MonadPGQueuer' backend.
 
 Accepts:
-  1. A label string (e.g., "SimpleDb", "HasqlDb")
-  2. A function that creates a Runner + cleanup from a fresh schema connection
-  3. A function that creates two independent Runners for concurrent tests
+ 1. A label string (e.g., "SimpleDb", "HasqlDb")
+ 2. A function that creates a Runner + cleanup from a fresh schema connection
+ 3. A function that creates two independent Runners for concurrent tests
 -}
 coreTests ::
     -- | Backend label
@@ -58,6 +62,7 @@ coreTests label mkRunner mkDualRunners =
         , testConcurrentDequeueSkipLocked mkRunner mkDualRunners
         , testLogJobsTransitionsStatus mkRunner
         , testWithTransactionRollback mkRunner
+        , testJobTreeRollup mkRunner
         ]
 
 -- | Set up a fresh schema and run an action.
@@ -84,7 +89,7 @@ testEnqueueCapturesJobId mkRunner =
 
             jobIds <-
                 runWith runner $
-                    enqueue (Entrypoint "test_basic") Nothing 0 Nothing Nothing Nothing
+                    enqueue (Entrypoint "test_basic") Nothing 0 Nothing Nothing Nothing Nothing Nothing Queued
 
             assertEqual "enqueue should return exactly one JobId" 1 (length jobIds)
             case jobIds of
@@ -122,9 +127,9 @@ testConcurrentDequeueSkipLocked mkRunner mkDualRunners =
 
             -- Enqueue 3 jobs
             _ <- runWith enqRunner $ do
-                _ <- enqueue (Entrypoint "concurrent_test") Nothing 1 Nothing Nothing Nothing
-                _ <- enqueue (Entrypoint "concurrent_test") Nothing 1 Nothing Nothing Nothing
-                enqueue (Entrypoint "concurrent_test") Nothing 1 Nothing Nothing Nothing
+                _ <- enqueue (Entrypoint "concurrent_test") Nothing 1 Nothing Nothing Nothing Nothing Nothing Queued
+                _ <- enqueue (Entrypoint "concurrent_test") Nothing 1 Nothing Nothing Nothing Nothing Nothing Queued
+                enqueue (Entrypoint "concurrent_test") Nothing 1 Nothing Nothing Nothing Nothing Nothing Queued
 
             enqCleanup
 
@@ -170,7 +175,7 @@ testLogJobsTransitionsStatus mkRunner =
             let ep = Entrypoint "log_test"
             let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
 
-            _ <- runWith runner $ enqueue ep Nothing 0 Nothing Nothing Nothing
+            _ <- runWith runner $ enqueue ep Nothing 0 Nothing Nothing Nothing Nothing Nothing Queued
             jobs <- runWith runner $ dequeue 1 params queueMgrId Nothing 300
             assertEqual "Should dequeue 1 job" 1 (length jobs)
 
@@ -223,7 +228,7 @@ testWithTransactionRollback mkRunner =
             -- Attempt a transaction that will fail
             result <- try $ runWith runner $ do
                 withTransaction $ do
-                    _ <- enqueue (Entrypoint "rollback_test") Nothing 0 Nothing Nothing Nothing
+                    _ <- enqueue (Entrypoint "rollback_test") Nothing 0 Nothing Nothing Nothing Nothing Nothing Queued
                     -- Force an exception inside the transaction
                     liftIO $ ioError (userError "intentional failure to trigger rollback")
 
@@ -239,5 +244,62 @@ testWithTransactionRollback mkRunner =
                 "Row count should be unchanged after rollback"
                 beforeCount
                 afterCount
+
+            cleanup
+
+{- | Test: Insert a JobTree and verify that parent is only dequeued after children complete.
+Expectation: Children are dequeued first, parent remains 'held'.
+Upon completion of all children, parent is dequeued.
+-}
+testJobTreeRollup ::
+    (Connection -> DBSettings -> IO (Runner, IO ())) ->
+    TestTree
+testJobTreeRollup mkRunner =
+    testCase "atomically rolls up child results and unholds parent" $ do
+        withFreshSchema $ \conn settings -> do
+            (runner, cleanup) <- mkRunner conn settings
+
+            let parentNode = JobNode (Entrypoint "parent") Nothing 0 Nothing Nothing Nothing Nothing
+                childNode1 = JobNode (Entrypoint "child") (Just "c1") 0 Nothing Nothing Nothing Nothing
+                childNode2 = JobNode (Entrypoint "child") (Just "c2") 0 Nothing Nothing Nothing Nothing
+                tree = parentNode <~~ [childNode1 <~~ [], childNode2 <~~ []]
+
+            runWith runner $ insertJobTree tree
+
+            queueMgrId <- nextRandom
+            let params =
+                    [ EntrypointExecutionParameter (Entrypoint "child") 0 5 (Exponential 5 60) FullJitter
+                    , EntrypointExecutionParameter (Entrypoint "parent") 0 5 (Exponential 5 60) FullJitter
+                    ]
+
+            -- First dequeue: should only get children
+            jobs1 <- runWith runner $ dequeue 10 params queueMgrId Nothing 300
+            assertEqual "Should dequeue 2 children" 2 (length jobs1)
+            assertBool "All dequeued jobs should be 'child'" (all (\j -> jobEntrypoint j == Entrypoint "child") jobs1)
+
+            -- Mark first child as success
+            case listToMaybe jobs1 of
+                Nothing -> pure ()
+                Just c1 -> runWith runner $ logJobs [(jobId c1, Successful, Just (String "result1"))]
+
+            -- Second dequeue: should get 0 jobs (parent is still held)
+            jobs2 <- runWith runner $ dequeue 10 params queueMgrId Nothing 300
+            assertEqual "Should dequeue 0 jobs because 1 child is still pending" 0 (length jobs2)
+
+            -- Mark second child as success
+            let c2 = jobs1 !! 1
+            runWith runner $ logJobs [(jobId c2, Successful, Just (String "result2"))]
+
+            -- Third dequeue: should now get the parent job
+            jobs3 <- runWith runner $ dequeue 10 params queueMgrId Nothing 300
+            assertEqual "Should dequeue 1 parent job" 1 (length jobs3)
+            let parentJob = head jobs3
+            assertEqual "Dequeued job should be 'parent'" (Entrypoint "parent") (jobEntrypoint parentJob)
+
+            -- Fetch merged child results
+            results <- runWith runner $ mergedChildResults (jobId parentJob)
+            assertEqual "Should have 2 child results" 2 (length results)
+            let resStrs = map (\(String s) -> s) results
+            assertBool "Results should contain both child outputs" ("result1" `elem` resStrs && "result2" `elem` resStrs)
 
             cleanup

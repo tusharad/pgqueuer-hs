@@ -33,6 +33,7 @@ module PGQueuer.Backend.Hasql.Statements (
 
 import qualified Data.Aeson as Aeson
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Functor.Contravariant ((>$<))
 import Data.Int (Int32, Int64)
@@ -77,10 +78,11 @@ textToJobStatus_ _ = Nothing
 
 -- | Decode a JSONB value into Aeson.Value
 jsonbDecoder :: D.Value Aeson.Value
-jsonbDecoder = D.custom $ \_isBinary bs ->
-    case Aeson.decodeStrict bs of
-        Just v -> Right v
-        Nothing -> Left "Invalid JSONB"
+jsonbDecoder = D.custom $ \isBinary bs ->
+    let bs' = if isBinary && not (BS.null bs) && BS.head bs == 1 then BS.drop 1 bs else bs
+     in case Aeson.decodeStrict bs' of
+            Just v -> Right v
+            Nothing -> Left "Invalid JSONB"
 
 -- | Decode a 'Job' from a row.
 jobRow :: D.Row Job
@@ -330,7 +332,6 @@ logJobsStmt settings =
                 , "    FROM job_status"
                 , "    INNER JOIN all_resolved"
                 , "        ON all_resolved.id = job_status.id"
-                , ")"
                 , "), log_insert AS ("
                 , "    INSERT INTO " <> queueTableLog settings <> " ("
                 , "        job_id,"
@@ -349,6 +350,7 @@ logJobsStmt settings =
                 , "    FROM rollup_parents rp"
                 , "    WHERE NOT EXISTS ("
                 , "        SELECT 1 FROM " <> queueTable settings <> " q WHERE q.parent_id = rp.parent_id"
+                , "          AND q.id NOT IN (SELECT id FROM deleted)"
                 , "    )"
                 , ")"
                 , "UPDATE " <> queueTable settings

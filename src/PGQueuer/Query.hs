@@ -289,7 +289,6 @@ logJobs conn settings jobStatuses = do
                 , "    FROM job_status"
                 , "    INNER JOIN all_resolved"
                 , "        ON all_resolved.id = job_status.id"
-                , ")"
                 , "), log_insert AS ("
                 , "    INSERT INTO " <> queueTableLog settings <> " ("
                 , "        job_id,"
@@ -308,6 +307,7 @@ logJobs conn settings jobStatuses = do
                 , "    FROM rollup_parents rp"
                 , "    WHERE NOT EXISTS ("
                 , "        SELECT 1 FROM " <> queueTable settings <> " q WHERE q.parent_id = rp.parent_id"
+                , "          AND q.id NOT IN (SELECT id FROM deleted)"
                 , "    )"
                 , ")"
                 , "UPDATE " <> queueTable settings
