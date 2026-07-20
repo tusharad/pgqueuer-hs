@@ -23,7 +23,7 @@ import PGQueuer.Core.Monad
 import PGQueuer.Schema (install, uninstall)
 import PGQueuer.Settings (DBSettings, defaultDBSettings)
 import PGQueuer.Types
-import PGQueuer.Workflow (JobNode (..), JobTree (..), insertJobTree, (<~~))
+import PGQueuer.Workflow (JobNode (..), insertJobTree, (<~~))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -287,19 +287,22 @@ testJobTreeRollup mkRunner =
             assertEqual "Should dequeue 0 jobs because 1 child is still pending" 0 (length jobs2)
 
             -- Mark second child as success
-            let c2 = jobs1 !! 1
-            runWith runner $ logJobs [(jobId c2, Successful, Just (String "result2"))]
+            case drop 1 jobs1 of
+                (c2 : _) -> runWith runner $ logJobs [(jobId c2, Successful, Just (String "result2"))]
+                [] -> pure ()
 
             -- Third dequeue: should now get the parent job
             jobs3 <- runWith runner $ dequeue 10 params queueMgrId Nothing 300
             assertEqual "Should dequeue 1 parent job" 1 (length jobs3)
-            let parentJob = head jobs3
-            assertEqual "Dequeued job should be 'parent'" (Entrypoint "parent") (jobEntrypoint parentJob)
+            case listToMaybe jobs3 of
+                Nothing -> pure ()
+                Just parentJob -> do
+                    assertEqual "Dequeued job should be 'parent'" (Entrypoint "parent") (jobEntrypoint parentJob)
 
-            -- Fetch merged child results
-            results <- runWith runner $ mergedChildResults (jobId parentJob)
-            assertEqual "Should have 2 child results" 2 (length results)
-            let resStrs = map (\(String s) -> s) results
-            assertBool "Results should contain both child outputs" ("result1" `elem` resStrs && "result2" `elem` resStrs)
+                    -- Fetch merged child results
+                    results <- runWith runner $ mergedChildResults (jobId parentJob)
+                    assertEqual "Should have 2 child results" 2 (length results)
+                    let resStrs = [s | String s <- results]
+                    assertBool "Results should contain both child outputs" ("result1" `elem` resStrs && "result2" `elem` resStrs)
 
             cleanup
