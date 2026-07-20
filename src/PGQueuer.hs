@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {- |
@@ -59,6 +61,10 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (withAsync)
 import Control.Monad (forever)
 import Data.Aeson (Value (String))
+#ifdef OTEL
+import Data.Aeson (Value (Object))
+import qualified Data.Aeson.KeyMap as KM
+#endif
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32)
@@ -79,7 +85,11 @@ import PGQueuer.Settings
 import PGQueuer.Types
 import PGQueuer.Worker.Backoff
 import PGQueuer.Worker.Buffer
-import PGQueuer.Worker.Cron (runCronScheduler)
+import PGQueuer.Worker.Cron
+
+#ifdef OTEL
+import PGQueuer.Tracing (injectOtelContext, withJobSpan)
+#endif 
 import PGQueuer.Workflow (JobNode (..), JobTree (..), (<~~))
 import qualified PGQueuer.Workflow as Workflow
 
@@ -178,15 +188,21 @@ workerLoop qm bufConfig params = do
                                 -- Dispatch and buffer ACKs or Retries
                                 mapM_ (dispatchJob qm logBuf retryBuf paramMap) jobs
 
-{- | Dispatch a job to its handler and buffer the result.
-| Dispatch a job to its handler and buffer the result.
--}
+#ifdef OTEL
+wrapJobHandler :: Job -> (Job -> IO ()) -> IO ()
+wrapJobHandler job handler = withJobSpan (jobEntrypoint job) (jobId job) (jobHeaders job) (handler job)
+#else
+wrapJobHandler :: Job -> (Job -> IO ()) -> IO ()
+wrapJobHandler job handler = handler job
+#endif
+
+-- | Dispatch a job to its handler and buffer the result.
 dispatchJob :: QueueManager -> JobStatusLogBuffer -> RetryBuffer -> Map Entrypoint EntrypointExecutionParameter -> Job -> IO ()
 dispatchJob qm logBuf retryBuf paramMap job =
     case Map.lookup entrypointName (qmEntrypoints qm) of
         Nothing -> fail $ "No handler registered for entrypoint: " ++ show entrypointName
         Just handler -> do
-            (handler job >> add logBuf (jobId job, Successful, Nothing))
+            (wrapJobHandler job handler >> add logBuf (jobId job, Successful, Nothing))
                 `catch` \e -> handleJobException e
   where
     Entrypoint entrypointName = jobEntrypoint job
@@ -230,6 +246,49 @@ dispatchJob qm logBuf retryBuf paramMap job =
 -- Queue operations (wrappers around Query module)
 -- ============================================================================
 
+#ifdef OTEL
+injectOtelIntoHeaders :: Maybe Value -> IO (Maybe Value)
+injectOtelIntoHeaders headers = do
+    mOtelHeaders <- injectOtelContext
+    return $ case (headers, mOtelHeaders) of
+        (Nothing, Nothing) -> Nothing
+        (Just h, Nothing) -> Just h
+        (Nothing, Just oh) -> Just (Object (KM.singleton "otel" oh))
+        (Just (Object hMap), Just oh) -> Just (Object (KM.insert "otel" oh hMap))
+        (Just other, Just _) -> Just other
+
+injectOtelIntoHeadersList :: [Maybe Value] -> IO [Maybe Value]
+injectOtelIntoHeadersList headersList = do
+    mOtelHeaders <- injectOtelContext
+    let injectOtel headers = case (headers, mOtelHeaders) of
+            (Nothing, Nothing) -> Nothing
+            (Just h, Nothing) -> Just h
+            (Nothing, Just oh) -> Just (Object (KM.singleton "otel" oh))
+            (Just (Object hMap), Just oh) -> Just (Object (KM.insert "otel" oh hMap))
+            (Just other, Just _) -> Just other
+    return $ map injectOtel headersList
+
+injectOtelIntoTree :: JobTree -> IO JobTree
+injectOtelIntoTree tree = do
+    mOtelHeaders <- injectOtelContext
+    let injectOtel headers = case (headers, mOtelHeaders) of
+            (Nothing, Nothing) -> Nothing
+            (Just h, Nothing) -> Just h
+            (Nothing, Just oh) -> Just (Object (KM.singleton "otel" oh))
+            (Just (Object hMap), Just oh) -> Just (Object (KM.insert "otel" oh hMap))
+            (Just other, Just _) -> Just other
+    return $ Workflow.mapJobTreeHeaders injectOtel tree
+#else
+injectOtelIntoHeaders :: Maybe Value -> IO (Maybe Value)
+injectOtelIntoHeaders = return
+
+injectOtelIntoHeadersList :: [Maybe Value] -> IO [Maybe Value]
+injectOtelIntoHeadersList = return
+
+injectOtelIntoTree :: JobTree -> IO JobTree
+injectOtelIntoTree = return
+#endif
+
 -- | Enqueue a single job
 enqueue ::
     -- | QueueManager instance
@@ -247,7 +306,8 @@ enqueue ::
     -- | Optional headers for the job
     Maybe Value ->
     IO [JobId]
-enqueue qm entrypoint payload priority executeAfter dedupeKey headers =
+enqueue qm entrypoint payload priority executeAfter dedupeKey headers = do
+    finalHeaders <- injectOtelIntoHeaders headers
     Q.enqueueSingle
         (qmConnection qm)
         (qmSettings qm)
@@ -256,7 +316,7 @@ enqueue qm entrypoint payload priority executeAfter dedupeKey headers =
         priority
         executeAfter
         dedupeKey
-        headers
+        finalHeaders
         Nothing
         Nothing
         Queued
@@ -278,7 +338,8 @@ enqueueMultiple ::
     -- | List of optional headers for the jobs
     [Maybe Value] ->
     IO [JobId]
-enqueueMultiple qm entrypoints payloads priorities executeAfters dedupeKeys headersList =
+enqueueMultiple qm entrypoints payloads priorities executeAfters dedupeKeys headersList = do
+    finalHeadersList <- injectOtelIntoHeadersList headersList
     Q.enqueueMultiple
         (qmConnection qm)
         (qmSettings qm)
@@ -287,15 +348,16 @@ enqueueMultiple qm entrypoints payloads priorities executeAfters dedupeKeys head
         priorities
         executeAfters
         dedupeKeys
-        headersList
+        finalHeadersList
         (replicate (length entrypoints) Nothing)
         (replicate (length entrypoints) Nothing)
         (replicate (length entrypoints) Queued)
 
 -- | Insert a JobTree using the QueueManager
 insertJobTree :: QueueManager -> JobTree -> IO ()
-insertJobTree qm tree =
-    runSimpleDb (SimpleDbEnv (qmConnection qm) (qmSettings qm)) (Workflow.insertJobTree tree)
+insertJobTree qm tree = do
+    finalTree <- injectOtelIntoTree tree
+    runSimpleDb (SimpleDbEnv (qmConnection qm) (qmSettings qm)) (Workflow.insertJobTree finalTree)
 
 -- | Dequeue jobs
 dequeue ::
