@@ -9,6 +9,7 @@ copyright:           "2026 Tushar Adhatrao"
 extra-source-files:
 - README.md
 - CHANGELOG.md
+- LICENSE
 
 # Metadata used when publishing your package
 synopsis:            PostgreSQL powered Job queue

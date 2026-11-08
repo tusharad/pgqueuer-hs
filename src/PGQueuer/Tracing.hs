@@ -1,9 +1,21 @@
 {-# LANGUAGE CPP #-}
 
-module PGQueuer.Tracing (
-    injectOtelContext,
-    withJobSpan,
-) where
+{- |
+Module      : PGQueuer.Tracing
+Description : OpenTelemetry distributed tracing and W3C trace context propagation.
+Copyright   : (c) Tushar Adhatrao, 2026
+License     : MIT
+Maintainer  : tusharadhatrao@gmail.com
+Stability   : experimental
+
+Provides functions for injecting active OpenTelemetry contexts into job headers
+at enqueue time and extracting them to create linked spans during execution.
+Compiled conditionally with the @otel@ cabal flag.
+-}
+module PGQueuer.Tracing
+  ( injectOtelContext
+  , withJobSpan
+  ) where
 
 import Data.Aeson (Value (..))
 import PGQueuer.Types (Entrypoint (..), JobId (..))

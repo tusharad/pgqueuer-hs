@@ -41,8 +41,7 @@ packages:
     hackage: tasty-bench-0.4
 snapshots:
 - completed:
-    sha256: 2e84de3088a8643c3743210ec31c50b2aeccf5fb085042d2e43e3ef700e7a2cd
-    size: 732461
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/24/46.yaml
-  original:
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/24/46.yaml
+    sha256: 74b41f766415e985473d1e27befeb0394ed62f95295da1ec630a48ba84751c1c
+    size: 732689
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/24/52.yaml
+  original: lts-24.52

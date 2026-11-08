@@ -1,33 +1,32 @@
-cabal-version: 2.2
+cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.38.1.
+-- This file has been generated from package.yaml by hpack version 0.39.6.
 --
 -- see: https://github.com/sol/hpack
 
 name:           example
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/githubuser/example#readme>
-homepage:       https://github.com/githubuser/example#readme
-bug-reports:    https://github.com/githubuser/example/issues
-author:         Author name here
-maintainer:     example@example.com
-copyright:      2026 Author name here
-license:        BSD-3-Clause
+description:    Please see the README on GitHub at <https://github.com/tusharad/pgqueuer-hs#readme>
+homepage:       https://github.com/tusharad/pgqueuer-hs#readme
+bug-reports:    https://github.com/tusharad/pgqueuer-hs/issues
+author:         Tushar Adhatrao
+maintainer:     tusharadhatrao@gmail.com
+copyright:      2026 Tushar Adhatrao
+license:        MIT
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     README.md
     CHANGELOG.md
+    LICENSE
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/example
+  location: https://github.com/tusharad/pgqueuer-hs
 
 executable chaos-ecommerce
   main-is: app/04-chaos-ecommerce.hs
   other-modules:
-      Paths_example
-  autogen-modules:
       Paths_example
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
@@ -42,11 +41,41 @@ executable chaos-ecommerce
     , uuid
   default-language: Haskell2010
 
+executable cron-pipeline
+  main-is: app/06-cron-pipeline.hs
+  other-modules:
+      Paths_example
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , pgqueuer-hs
+    , postgresql-simple
+    , text
+    , time
+    , uuid
+  default-language: Haskell2010
+
+executable hasql-worker
+  main-is: app/05-hasql-worker.hs
+  other-modules:
+      Paths_example
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , pgqueuer-hs
+    , postgresql-simple
+    , text
+    , time
+    , uuid
+  default-language: Haskell2010
+
 executable hello-mailer
   main-is: app/01-hello-mailer.hs
   other-modules:
-      Paths_example
-  autogen-modules:
       Paths_example
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
@@ -65,8 +94,6 @@ executable map-reduce-etl
   main-is: app/03-map-reduce-etl.hs
   other-modules:
       Paths_example
-  autogen-modules:
-      Paths_example
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
@@ -82,8 +109,6 @@ executable map-reduce-etl
 executable resilient-scraper
   main-is: app/02-resilient-scraper.hs
   other-modules:
-      Paths_example
-  autogen-modules:
       Paths_example
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:

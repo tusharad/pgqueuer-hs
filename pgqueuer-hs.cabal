@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.38.1.
+-- This file has been generated from package.yaml by hpack version 0.39.6.
 --
 -- see: https://github.com/sol/hpack
 
@@ -20,6 +20,7 @@ build-type:     Simple
 extra-source-files:
     README.md
     CHANGELOG.md
+    LICENSE
 
 source-repository head
   type: git
@@ -86,10 +87,14 @@ test-suite pgqueuer-hs-test
   main-is: Spec.hs
   other-modules:
       Tests.BackoffSpec
+      Tests.BufferSpec
       Tests.CoreSpec
+      Tests.CronSpec
       Tests.HasqlSpec
       Tests.PGQueuer
       Tests.SimpleSpec
+      Tests.TypesSpec
+      Tests.WorkflowSpec
       Paths_pgqueuer_hs
   hs-source-dirs:
       test
