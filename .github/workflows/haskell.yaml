@@ -15,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: haskell-actions/run-fourmolu@v11
+      - uses: haskell-actions/run-fourmolu@v13
         with:
-          version: "0.17.0.0"
+          version: "0.21.0.0"
 
   hlint:
     name: HLint Static Analysis
@@ -79,20 +79,8 @@ jobs:
     name: Integration & Unit Tests
     needs: build
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: queue_user
-          POSTGRES_PASSWORD: queue_pass
-          POSTGRES_DB: queue_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    env:
+      USE_TESTCONTAINERS: "1"
     defaults:
       run:
         shell: bash

@@ -8,3 +8,4 @@ extra-deps:
   - hasql-transaction-1.1
   - ptr-0.16.8.6
   - tasty-bench-0.4
+  - testcontainers-0.5.4.0@sha256:21e544a274eb2b8ff6a4522571711c605637e51d320f4ce4f1c12cc5d3100280,2535

@@ -2,35 +2,43 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Tests.PGQueuer (pgqueuerTests) where
+module Tests.PGQueuer
+  ( pgqueuerTests
+  , pgqueuerTestsWith
+  )
+where
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Data.Aeson
+import Data.ByteString (ByteString)
 import Data.Either (isLeft, isRight)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.UUID.V4 (nextRandom)
 import GHC.Generics
 import PGQueuer
+import Tests.TestContainer (resolveConnStr)
 
 pgqueuerTests :: TestTree
-pgqueuerTests =
-  dependentTestGroup
+pgqueuerTests = pgqueuerTestsWith resolveConnStr
+
+pgqueuerTestsWith :: IO ByteString -> TestTree
+pgqueuerTestsWith getConnStr =
+  testGroup
     "All tests"
-    AllFinish
-    [ schemaTests
-    , entrypointTests
-    , enqueueDequeueJobs
-    , enqueueDequeueMultipleJobs
-    , logAndListJobs
-    , roundTripJSONPayload
+    [ schemaTests getConnStr
+    , entrypointTests getConnStr
+    , enqueueDequeueJobs getConnStr
+    , enqueueDequeueMultipleJobs getConnStr
+    , logAndListJobs getConnStr
+    , roundTripJSONPayload getConnStr
     ]
 
-withFreshQueue :: (QueueManager -> IO a) -> IO a
-withFreshQueue action = do
-  let conStr = "postgresql://queue_user:queue_pass@localhost:5432/queue_db"
+withFreshQueueWith :: IO ByteString -> (QueueManager -> IO a) -> IO a
+withFreshQueueWith getConnStr action = do
+  conStr <- getConnStr
   let dbSetting = defaultDBSettings
   queueMgrId <- nextRandom
   withQueueManager conStr dbSetting queueMgrId $ \qm -> do
@@ -44,31 +52,30 @@ expectOne message values assertion =
     Nothing -> assertFailure message
     Just value -> assertion value
 
-schemaTests :: TestTree
-schemaTests = do
-  testGroup "Schema related tests" [checkInstallUninstallSchema]
+schemaTests :: IO ByteString -> TestTree
+schemaTests getConnStr = testGroup "Schema related tests" [checkInstallUninstallSchema getConnStr]
 
-checkInstallUninstallSchema :: TestTree
-checkInstallUninstallSchema = testCase "installed schema should should be deleted safely" $ do
-  withFreshQueue $ \qm -> do
+checkInstallUninstallSchema :: IO ByteString -> TestTree
+checkInstallUninstallSchema getConnStr = testCase "installed schema should should be deleted safely" $ do
+  withFreshQueueWith getConnStr $ \qm -> do
     schemaInstalled <- verifyStructure qm
     assertBool "Schema is installed and verified" (isRight schemaInstalled)
     uninstallSchema qm
     schemaInstalled2 <- verifyStructure qm
     assertBool "Schema is removed and verified" (isLeft schemaInstalled2)
 
-entrypointTests :: TestTree
-entrypointTests = testCase "Adding an entrypoint in qm adds entrypoint" $ do
-  withFreshQueue $ \qm -> do
+entrypointTests :: IO ByteString -> TestTree
+entrypointTests getConnStr = testCase "Adding an entrypoint in qm adds entrypoint" $ do
+  withFreshQueueWith getConnStr $ \qm -> do
     let ep = Entrypoint "hello"
     qm1 <- registerEntrypoint qm ep (\_ -> pure ())
     let entrypoints = qmEntrypoints qm1
     assertBool "qm should contain entrypoint hello" $ isJust (Map.lookup "hello" entrypoints)
 
-enqueueDequeueJobs :: TestTree
-enqueueDequeueJobs =
+enqueueDequeueJobs :: IO ByteString -> TestTree
+enqueueDequeueJobs getConnStr =
   testCase "Enqueue jobs should have entry in PGQ table" $ do
-    withFreshQueue $ \qm -> do
+    withFreshQueueWith getConnStr $ \qm -> do
       let ep = Entrypoint "hello"
       let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
       qm1 <- registerEntrypoint qm ep (\_ -> pure ())
@@ -84,10 +91,10 @@ enqueueDequeueJobs =
         expectOne "job status lookup failed" status $ \(_, jobStatus') ->
           assertEqual "job should be picked" Picked jobStatus'
 
-enqueueDequeueMultipleJobs :: TestTree
-enqueueDequeueMultipleJobs =
+enqueueDequeueMultipleJobs :: IO ByteString -> TestTree
+enqueueDequeueMultipleJobs getConnStr =
   testCase "Enqueue multiple jobs dequeue them" $ do
-    withFreshQueue $ \qm -> do
+    withFreshQueueWith getConnStr $ \qm -> do
       let ep = Entrypoint "hello"
       let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
       qm1 <- registerEntrypoint qm ep (\_ -> pure ())
@@ -111,10 +118,10 @@ enqueueDequeueMultipleJobs =
       expectOne "statistics are empty" stats1 $ \stat ->
         assertEqual "picked jobs should be tracked" Picked (statsStatus stat)
 
-logAndListJobs :: TestTree
-logAndListJobs =
+logAndListJobs :: IO ByteString -> TestTree
+logAndListJobs getConnStr =
   testCase "Update job status, retry, requeue and clear queue" $ do
-    withFreshQueue $ \qm -> do
+    withFreshQueueWith getConnStr $ \qm -> do
       let ep = Entrypoint "hello"
       let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
       qm1 <- registerEntrypoint qm ep (\_ -> pure ())
@@ -169,10 +176,10 @@ data BasicType = BasicType
   }
   deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
-roundTripJSONPayload :: TestTree
-roundTripJSONPayload = do
+roundTripJSONPayload :: IO ByteString -> TestTree
+roundTripJSONPayload getConnStr = do
   testCase "Round trip JSON payload through enqueue and dequeue" $ do
-    withFreshQueue $ \qm -> do
+    withFreshQueueWith getConnStr $ \qm -> do
       let ep = Entrypoint "hello"
       let params = [EntrypointExecutionParameter ep 0 5 (Exponential 5 60) FullJitter]
       qm1 <- registerEntrypoint qm ep (\_ -> pure ())

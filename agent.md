@@ -79,7 +79,7 @@ All agents and contributors working on this codebase MUST follow this branching 
 
 ```
 stack.yaml / cabal.project     -- Workspace configuration (resolver: lts-24.52 / GHC 9.10.3)
-stack-lts-*.yaml               -- Multi-LTS resolvers (lts-21.25, lts-22.44, lts-23.28, lts-24.52)
+stack-lts-*.yaml               -- Multi-LTS resolvers (lts-23.28, lts-24.52)
 fourmolu.yaml                  -- Repository formatting rules (2-space indent, leading commas)
 .hlint.yaml                    -- Static analysis rules (bans partial functions: head, tail, fromJust, error)
 Makefile                       -- Unified targets: build, test, lint, format, check, sdist, docs-hackage, release-check

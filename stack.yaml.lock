@@ -39,6 +39,13 @@ packages:
       size: 447
   original:
     hackage: tasty-bench-0.4
+- completed:
+    hackage: testcontainers-0.5.4.0@sha256:21e544a274eb2b8ff6a4522571711c605637e51d320f4ce4f1c12cc5d3100280,2535
+    pantry-tree:
+      sha256: e4f3dada33d9b0a5b1e3898c91d6c338e92077e216e9d1d82acbf1dbe7220a50
+      size: 1470
+  original:
+    hackage: testcontainers-0.5.4.0@sha256:21e544a274eb2b8ff6a4522571711c605637e51d320f4ce4f1c12cc5d3100280,2535
 snapshots:
 - completed:
     sha256: 74b41f766415e985473d1e27befeb0394ed62f95295da1ec630a48ba84751c1c
