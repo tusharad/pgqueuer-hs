@@ -14,7 +14,6 @@ using @FOR UPDATE SKIP LOCKED@.
 -}
 module Main (main) where
 
-import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
 import Data.Aeson (encode)
 import qualified Data.ByteString.Char8 as BS8
