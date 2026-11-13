@@ -7,16 +7,19 @@ module Tests.TestContainer
   , resolveConnStr
   ) where
 
+import Control.Concurrent (threadDelay)
+import Control.Exception (SomeException, try)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
 import Data.Function ((&))
 import qualified Data.Text.Lazy as TL
+import Database.PostgreSQL.Simple (Connection, close, connectPostgreSQL)
 import System.Environment (lookupEnv)
 import Test.Tasty (TestTree)
 import TestContainers
   ( Container
   , ContainerRequest
-  , Pipe (Stdout)
+  , Pipe (Stderr)
   , containerPort
   , containerRequest
   , fromTag
@@ -30,7 +33,9 @@ import TestContainers
   )
 import TestContainers.Tasty (withContainers)
 
--- | PostgreSQL 16 container definition.
+{- | PostgreSQL 16 container definition.
+PostgreSQL logs its operational messages (including startup readiness) to Stderr.
+-}
 postgresContainer :: ContainerRequest
 postgresContainer =
   containerRequest (fromTag "postgres:16-alpine")
@@ -43,7 +48,7 @@ postgresContainer =
     & withoutReaper
     & setWaitingFor
       ( waitUntilTimeout 60 $
-          waitForLogLine Stdout (TL.isInfixOf "database system is ready to accept connections")
+          waitForLogLine Stderr (TL.isInfixOf "database system is ready to accept connections")
       )
 
 {- | Resolve connection host for mapped container ports.
@@ -55,6 +60,19 @@ getTestHost = do
   pure $ case mHost of
     Just h | not (null h) -> h
     _ -> "127.0.0.1"
+
+-- | Retry connecting until PostgreSQL is actually responsive.
+ensurePostgresReady :: ByteString -> IO ()
+ensurePostgresReady connStr = go (30 :: Int)
+  where
+    go 0 = pure ()
+    go n = do
+      result <- try (connectPostgreSQL connStr) :: IO (Either SomeException Connection)
+      case result of
+        Right conn -> close conn
+        Left _ -> do
+          threadDelay 200000
+          go (n - 1)
 
 {- | Resolve connection string dynamically:
 1. Uses PG_CONN_STRING if set.
@@ -96,4 +114,8 @@ resolveConnStr = do
 withPostgresTestContainer :: (IO ByteString -> TestTree) -> TestTree
 withPostgresTestContainer testFactory =
   withContainers (run postgresContainer) $ \getContainer ->
-    testFactory (getContainer >>= getTestConnStr)
+    testFactory $ do
+      container <- getContainer
+      connStr <- getTestConnStr container
+      ensurePostgresReady connStr
+      pure connStr
