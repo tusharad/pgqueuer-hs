@@ -4,3 +4,4 @@ collect_code.sh
 code.txt
 dist-newstyle/
 pgqueuer-hs.txt
+.DS_Store

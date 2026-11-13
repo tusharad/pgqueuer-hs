@@ -45,29 +45,35 @@ jobs:
 
       - name: Upload Package to Hackage
         env:
+          HACKAGE_TOKEN: ${{ secrets.HACKAGE_TOKEN }}
           HACKAGE_USERNAME: ${{ secrets.HACKAGE_USERNAME }}
           HACKAGE_PASSWORD: ${{ secrets.HACKAGE_PASSWORD }}
         run: |
           SDIST_FILE=$(ls dist-newstyle/sdist/pgqueuer-hs-*.tar.gz | head -n 1)
           echo "Publishing package ${SDIST_FILE} to Hackage..."
-          curl --fail-with-body -X POST \
-            -u "${HACKAGE_USERNAME}:${HACKAGE_PASSWORD}" \
-            -H "Accept: text/plain" \
-            -F "package=@${SDIST_FILE}" \
-            https://hackage.haskell.org/packages/
+          if [ -n "${HACKAGE_TOKEN}" ]; then
+            cabal upload --publish -t "${HACKAGE_TOKEN}" "${SDIST_FILE}"
+          elif [ -n "${HACKAGE_USERNAME}" ] && [ -n "${HACKAGE_PASSWORD}" ]; then
+            cabal upload --publish -u "${HACKAGE_USERNAME}" -p "${HACKAGE_PASSWORD}" "${SDIST_FILE}"
+          else
+            echo "::error::Neither HACKAGE_TOKEN nor HACKAGE_USERNAME/HACKAGE_PASSWORD is set in repository secrets."
+            exit 1
+          fi
 
       - name: Upload Haddock Documentation to Hackage
         env:
+          HACKAGE_TOKEN: ${{ secrets.HACKAGE_TOKEN }}
           HACKAGE_USERNAME: ${{ secrets.HACKAGE_USERNAME }}
           HACKAGE_PASSWORD: ${{ secrets.HACKAGE_PASSWORD }}
         run: |
           DOCS_FILE=$(ls dist-newstyle/pgqueuer-hs-*-docs.tar.gz | head -n 1)
           echo "Publishing Haddock documentation ${DOCS_FILE} to Hackage..."
-          BASENAME=$(basename "${DOCS_FILE}" -docs.tar.gz)
-          curl --fail-with-body -X PUT \
-            -u "${HACKAGE_USERNAME}:${HACKAGE_PASSWORD}" \
-            -H "Content-Type: application/x-tar" \
-            -H "Content-Encoding: gzip" \
-            --data-binary "@${DOCS_FILE}" \
-            "https://hackage.haskell.org/package/${BASENAME}/docs"
+          if [ -n "${HACKAGE_TOKEN}" ]; then
+            cabal upload --publish -d -t "${HACKAGE_TOKEN}" "${DOCS_FILE}"
+          elif [ -n "${HACKAGE_USERNAME}" ] && [ -n "${HACKAGE_PASSWORD}" ]; then
+            cabal upload --publish -d -u "${HACKAGE_USERNAME}" -p "${HACKAGE_PASSWORD}" "${DOCS_FILE}"
+          else
+            echo "::error::Neither HACKAGE_TOKEN nor HACKAGE_USERNAME/HACKAGE_PASSWORD is set in repository secrets."
+            exit 1
+          fi
 

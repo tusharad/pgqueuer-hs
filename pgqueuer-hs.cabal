@@ -1,4 +1,4 @@
-cabal-version: 1.12
+cabal-version: 1.18
 
 -- This file has been generated from package.yaml by hpack version 0.39.6.
 --
@@ -6,9 +6,25 @@ cabal-version: 1.12
 
 name:           pgqueuer-hs
 version:        0.0.1.0
-synopsis:       PostgreSQL powered Job queue
-description:    Please see the README on GitHub at <https://github.com/tusharad/pgqueuer-hs#readme>
-category:       Database
+synopsis:       High-performance PostgreSQL background job queue with cron and workflows
+description:    A high-throughput, type-safe PostgreSQL-backed job queue for Haskell applications.
+                Inspired by pgqueuer in Python, pgqueuer-hs leverages PostgreSQL's LISTEN / NOTIFY
+                and `FOR UPDATE SKIP LOCKED` for reliable, non-contending, at-least-once distributed job processing.
+                .
+                Key features:
+                * Zero-polling real-time dispatch via PostgreSQL LISTEN / NOTIFY
+                * Non-contending job claims using `FOR UPDATE SKIP LOCKED`
+                * Dual backend support: `SimpleDb` (postgresql-simple) and `HasqlDb` (binary protocol via Hasql)
+                * Declarative Workflow DAG orchestration (`JobTree` and `<~~` operator)
+                * Native recurring cron job scheduling
+                * Pluggable retry backoff policies (constant, linear, exponential) with full and equal jitter
+                * Write batching and rate limiting via `TimedOverflowBuffer` to protect PostgreSQL WAL
+                * Full end-to-end distributed tracing support
+                .
+                For getting started and runnable examples, please see the README on GitHub at
+                <https://github.com/tusharad/pgqueuer-hs#readme>.
+category:       Database, Concurrency, Distributed Computing
+stability:      experimental
 homepage:       https://github.com/tusharad/pgqueuer-hs#readme
 bug-reports:    https://github.com/tusharad/pgqueuer-hs/issues
 author:         Tushar Adhatrao
@@ -17,10 +33,13 @@ copyright:      2026 Tushar Adhatrao
 license:        MIT
 license-file:   LICENSE
 build-type:     Simple
-extra-source-files:
+tested-with:
+    GHC == 9.4.8, GHC == 9.6.6, GHC == 9.8.4, GHC == 9.10.3
+extra-doc-files:
     README.md
     CHANGELOG.md
     LICENSE
+    CONTRIBUTING.md
 
 source-repository head
   type: git
@@ -61,8 +80,8 @@ library
     , containers >=0.6 && <0.8
     , contravariant >=1.5 && <2
     , cron >=0.7 && <1
-    , hasql >=1.6 && <2
-    , hasql-pool >=1.2 && <2
+    , hasql >=1.6 && <1.10
+    , hasql-pool >=1.2 && <1.4
     , mtl >=2.2 && <3
     , postgresql-simple >=0.7 && <0.9
     , random ==1.2.*
@@ -107,8 +126,8 @@ test-suite pgqueuer-hs-test
     , containers >=0.6 && <0.8
     , contravariant >=1.5 && <2
     , cron >=0.7 && <1
-    , hasql >=1.6 && <2
-    , hasql-pool >=1.2 && <2
+    , hasql >=1.6 && <1.10
+    , hasql-pool >=1.2 && <1.4
     , mtl >=2.2 && <3
     , pgqueuer-hs
     , postgresql-simple >=0.7 && <0.9
@@ -147,8 +166,8 @@ benchmark pgqueuer-hs-bench
     , containers >=0.6 && <0.8
     , contravariant >=1.5 && <2
     , cron >=0.7 && <1
-    , hasql >=1.6 && <2
-    , hasql-pool >=1.2 && <2
+    , hasql >=1.6 && <1.10
+    , hasql-pool >=1.2 && <1.4
     , mtl >=2.2 && <3
     , pgqueuer-hs
     , postgresql-simple >=0.7 && <0.9

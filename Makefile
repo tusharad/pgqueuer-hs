@@ -1,4 +1,4 @@
-.PHONY: help build test bench lint format format-check check docs clean db-up db-down install-schema uninstall-schema build-example
+.PHONY: help build test bench lint format format-check check docs docs-hackage sdist release-check clean db-up db-down install-schema uninstall-schema build-example
 
 .DEFAULT_GOAL := help
 
@@ -23,6 +23,9 @@ help:
 	@echo "  format-check    Verify formatting with Fourmolu (CI check)"
 	@echo "  check           Run cabal check for Hackage packaging validity"
 	@echo "  docs            Build Haddock documentation"
+	@echo "  docs-hackage    Build Hackage-compliant documentation archive"
+	@echo "  sdist           Generate Hackage source distribution tarball"
+	@echo "  release-check   Run complete pre-release validation suite"
 	@echo "  clean           Clean build artifacts"
 	@echo "  db-up           Start local PostgreSQL container"
 	@echo "  db-down         Stop and remove local PostgreSQL container"
@@ -61,6 +64,17 @@ check:
 ## Build Haddock documentation
 docs:
 	stack haddock --no-haddock-deps
+
+## Build Hackage-compliant documentation archive
+docs-hackage:
+	cabal haddock --haddock-for-hackage --enable-doc
+
+## Build Hackage source distribution tarball
+sdist:
+	cabal sdist
+
+## Run full pre-release validation
+release-check: format-check lint check test sdist docs-hackage
 
 ## Clean build artifacts
 clean:

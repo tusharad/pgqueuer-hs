@@ -6,19 +6,35 @@ author:              "Tushar Adhatrao"
 maintainer:          "tusharadhatrao@gmail.com"
 copyright:           "2026 Tushar Adhatrao"
 
-extra-source-files:
+extra-doc-files:
 - README.md
 - CHANGELOG.md
 - LICENSE
+- CONTRIBUTING.md
 
 # Metadata used when publishing your package
-synopsis:            PostgreSQL powered Job queue
-category:            Database
+synopsis:            High-performance PostgreSQL background job queue with cron and workflows
+category:            Database, Concurrency, Distributed Computing
+stability:           experimental
+tested-with:         GHC == 9.4.8, GHC == 9.6.6, GHC == 9.8.4, GHC == 9.10.3
 
-# To avoid duplicated efforts in documentation and dealing with the
-# complications of embedding Haddock markup inside cabal files, it is
-# common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/tusharad/pgqueuer-hs#readme>
+description: |
+  A high-throughput, type-safe PostgreSQL-backed job queue for Haskell applications.
+  Inspired by pgqueuer in Python, pgqueuer-hs leverages PostgreSQL's LISTEN / NOTIFY
+  and `FOR UPDATE SKIP LOCKED` for reliable, non-contending, at-least-once distributed job processing.
+
+  Key features:
+  * Zero-polling real-time dispatch via PostgreSQL LISTEN / NOTIFY
+  * Non-contending job claims using `FOR UPDATE SKIP LOCKED`
+  * Dual backend support: `SimpleDb` (postgresql-simple) and `HasqlDb` (binary protocol via Hasql)
+  * Declarative Workflow DAG orchestration (`JobTree` and `<~~` operator)
+  * Native recurring cron job scheduling
+  * Pluggable retry backoff policies (constant, linear, exponential) with full and equal jitter
+  * Write batching and rate limiting via `TimedOverflowBuffer` to protect PostgreSQL WAL
+  * Full end-to-end distributed tracing support
+
+  For getting started and runnable examples, please see the README on GitHub at
+  <https://github.com/tusharad/pgqueuer-hs#readme>.
 
 flags:
   otel:
@@ -34,8 +50,8 @@ dependencies:
 - containers >= 0.6 && < 0.8
 - contravariant >= 1.5 && < 2
 - cron >= 0.7 && < 1
-- hasql >= 1.6 && < 2
-- hasql-pool >= 1.2 && < 2
+- hasql >= 1.6 && < 1.10
+- hasql-pool >= 1.2 && < 1.4
 - mtl >= 2.2 && < 3
 - postgresql-simple >= 0.7 && < 0.9
 - stm >= 2.5 && < 3
