@@ -4,8 +4,16 @@
 
 module Tests.CoreSpec
   ( coreTests
+  , coreTestsWith
   , Runner (..)
   , connStr
+  , withFreshSchema
+  , withFreshSchemaWith
+  , testEnqueueCapturesJobId
+  , testConcurrentDequeueSkipLocked
+  , testLogJobsTransitionsStatus
+  , testWithTransactionRollback
+  , testJobTreeRollup
   )
 where
 
@@ -56,25 +64,44 @@ coreTests ::
   (Connection -> DBSettings -> IO (Runner, Runner, IO ())) ->
   TestTree
 coreTests label mkRunner mkDualRunners =
+  coreTestsWith (pure connStr) label (\_ c s -> mkRunner c s) (\_ c s -> mkDualRunners c s)
+
+-- | Core integration tests parameterized with a dynamic connection string action.
+coreTestsWith ::
+  -- | Connection string resolver (e.g. from Testcontainers)
+  IO ByteString ->
+  -- | Backend label
+  String ->
+  -- | (connStr -> conn -> settings -> IO (runner, cleanup))
+  (ByteString -> Connection -> DBSettings -> IO (Runner, IO ())) ->
+  -- | (connStr -> conn -> settings -> IO (runner1, runner2, cleanup))
+  (ByteString -> Connection -> DBSettings -> IO (Runner, Runner, IO ())) ->
+  TestTree
+coreTestsWith getConnStr label mkRunner mkDualRunners =
   testGroup
     (label <> " - Core Integration")
-    [ testEnqueueCapturesJobId mkRunner
-    , testConcurrentDequeueSkipLocked mkRunner mkDualRunners
-    , testLogJobsTransitionsStatus mkRunner
-    , testWithTransactionRollback mkRunner
-    , testJobTreeRollup mkRunner
+    [ testEnqueueCapturesJobIdWith getConnStr mkRunner
+    , testConcurrentDequeueSkipLockedWith getConnStr mkRunner mkDualRunners
+    , testLogJobsTransitionsStatusWith getConnStr mkRunner
+    , testWithTransactionRollbackWith getConnStr mkRunner
+    , testJobTreeRollupWith getConnStr mkRunner
     ]
 
--- | Set up a fresh schema and run an action.
-withFreshSchema :: (Connection -> DBSettings -> IO a) -> IO a
-withFreshSchema action = do
-  conn <- PG.connectPostgreSQL connStr
+-- | Set up a fresh schema and run an action with a dynamically resolved connection string.
+withFreshSchemaWith :: IO ByteString -> (ByteString -> Connection -> DBSettings -> IO a) -> IO a
+withFreshSchemaWith getConnStr action = do
+  cStr <- getConnStr
+  conn <- PG.connectPostgreSQL cStr
   let settings = defaultDBSettings
   uninstall conn settings
   install conn settings
-  result <- action conn settings
+  result <- action cStr conn settings
   PG.close conn
   return result
+
+-- | Set up a fresh schema using the default connStr.
+withFreshSchema :: (Connection -> DBSettings -> IO a) -> IO a
+withFreshSchema action = withFreshSchemaWith (pure connStr) (\_ conn settings -> action conn settings)
 
 {- | Test: Call enqueue with an entrypoint and payload
 Expectation: Return value contains a valid JobId; row exists in 'pgqueuer' table
@@ -83,9 +110,16 @@ testEnqueueCapturesJobId ::
   (Connection -> DBSettings -> IO (Runner, IO ())) ->
   TestTree
 testEnqueueCapturesJobId mkRunner =
+  testEnqueueCapturesJobIdWith (pure connStr) (\_ c s -> mkRunner c s)
+
+testEnqueueCapturesJobIdWith ::
+  IO ByteString ->
+  (ByteString -> Connection -> DBSettings -> IO (Runner, IO ())) ->
+  TestTree
+testEnqueueCapturesJobIdWith getConnStr mkRunner =
   testCase "performs basic job enqueuing and captures a distinct JobId" $ do
-    withFreshSchema $ \conn settings -> do
-      (runner, cleanup) <- mkRunner conn settings
+    withFreshSchemaWith getConnStr $ \cStr conn settings -> do
+      (runner, cleanup) <- mkRunner cStr conn settings
 
       jobIds <-
         runWith runner $
@@ -120,10 +154,21 @@ testConcurrentDequeueSkipLocked ::
   (Connection -> DBSettings -> IO (Runner, Runner, IO ())) ->
   TestTree
 testConcurrentDequeueSkipLocked mkRunner mkDualRunners =
+  testConcurrentDequeueSkipLockedWith
+    (pure connStr)
+    (\_ c s -> mkRunner c s)
+    (\_ c s -> mkDualRunners c s)
+
+testConcurrentDequeueSkipLockedWith ::
+  IO ByteString ->
+  (ByteString -> Connection -> DBSettings -> IO (Runner, IO ())) ->
+  (ByteString -> Connection -> DBSettings -> IO (Runner, Runner, IO ())) ->
+  TestTree
+testConcurrentDequeueSkipLockedWith getConnStr mkRunner mkDualRunners =
   testCase "executes non-contending dequeue using FOR UPDATE SKIP LOCKED" $ do
-    withFreshSchema $ \conn settings -> do
+    withFreshSchemaWith getConnStr $ \cStr conn settings -> do
       -- Use a single runner for enqueueing
-      (enqRunner, enqCleanup) <- mkRunner conn settings
+      (enqRunner, enqCleanup) <- mkRunner cStr conn settings
 
       -- Enqueue 3 jobs
       _ <- runWith enqRunner $ do
@@ -134,7 +179,7 @@ testConcurrentDequeueSkipLocked mkRunner mkDualRunners =
       enqCleanup
 
       -- Create two independent runners for concurrent dequeue
-      (runner1, runner2, dualCleanup) <- mkDualRunners conn settings
+      (runner1, runner2, dualCleanup) <- mkDualRunners cStr conn settings
 
       let params = [EntrypointExecutionParameter (Entrypoint "concurrent_test") 0 5 (Exponential 5 60) FullJitter]
 
@@ -166,9 +211,16 @@ testLogJobsTransitionsStatus ::
   (Connection -> DBSettings -> IO (Runner, IO ())) ->
   TestTree
 testLogJobsTransitionsStatus mkRunner =
+  testLogJobsTransitionsStatusWith (pure connStr) (\_ c s -> mkRunner c s)
+
+testLogJobsTransitionsStatusWith ::
+  IO ByteString ->
+  (ByteString -> Connection -> DBSettings -> IO (Runner, IO ())) ->
+  TestTree
+testLogJobsTransitionsStatusWith getConnStr mkRunner =
   testCase "atomically transitions job status and records to the transaction log" $ do
-    withFreshSchema $ \conn settings -> do
-      (runner, cleanup) <- mkRunner conn settings
+    withFreshSchemaWith getConnStr $ \cStr conn settings -> do
+      (runner, cleanup) <- mkRunner cStr conn settings
 
       -- Enqueue and pick a job
       queueMgrId <- nextRandom
@@ -217,9 +269,16 @@ testWithTransactionRollback ::
   (Connection -> DBSettings -> IO (Runner, IO ())) ->
   TestTree
 testWithTransactionRollback mkRunner =
+  testWithTransactionRollbackWith (pure connStr) (\_ c s -> mkRunner c s)
+
+testWithTransactionRollbackWith ::
+  IO ByteString ->
+  (ByteString -> Connection -> DBSettings -> IO (Runner, IO ())) ->
+  TestTree
+testWithTransactionRollbackWith getConnStr mkRunner =
   testCase "strictly rolls back state modifications when a transaction block fails" $ do
-    withFreshSchema $ \conn settings -> do
-      (runner, cleanup) <- mkRunner conn settings
+    withFreshSchemaWith getConnStr $ \cStr conn settings -> do
+      (runner, cleanup) <- mkRunner cStr conn settings
 
       -- Count rows before
       [PG.Only (beforeCount :: Int)] <-
@@ -255,9 +314,16 @@ testJobTreeRollup ::
   (Connection -> DBSettings -> IO (Runner, IO ())) ->
   TestTree
 testJobTreeRollup mkRunner =
+  testJobTreeRollupWith (pure connStr) (\_ c s -> mkRunner c s)
+
+testJobTreeRollupWith ::
+  IO ByteString ->
+  (ByteString -> Connection -> DBSettings -> IO (Runner, IO ())) ->
+  TestTree
+testJobTreeRollupWith getConnStr mkRunner =
   testCase "atomically rolls up child results and unholds parent" $ do
-    withFreshSchema $ \conn settings -> do
-      (runner, cleanup) <- mkRunner conn settings
+    withFreshSchemaWith getConnStr $ \cStr conn settings -> do
+      (runner, cleanup) <- mkRunner cStr conn settings
 
       let parentNode = JobNode (Entrypoint "parent") Nothing 0 Nothing Nothing Nothing Nothing
           childNode1 = JobNode (Entrypoint "child") (Just "c1") 0 Nothing Nothing Nothing Nothing

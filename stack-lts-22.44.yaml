@@ -10,4 +10,5 @@ extra-deps:
   - hasql-transaction-1.1
   - ptr-0.16.8.6
   - tasty-bench-0.4
+  - testcontainers-0.5.4.0
 
