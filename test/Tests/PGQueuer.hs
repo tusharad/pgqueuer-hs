@@ -47,9 +47,6 @@ withFreshQueueWith getConnStr action = do
     installSchema qm
     action qm
 
-withFreshQueue :: (QueueManager -> IO a) -> IO a
-withFreshQueue = withFreshQueueWith resolveConnStr
-
 expectOne :: String -> [a] -> (a -> Assertion) -> Assertion
 expectOne message values assertion =
   case listToMaybe values of

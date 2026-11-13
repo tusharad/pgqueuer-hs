@@ -11,4 +11,7 @@ extra-deps:
   - ptr-0.16.8.6
   - tasty-bench-0.4
   - testcontainers-0.5.4.0
+  - text-builder-1.0.0.3
+  - text-builder-dev-0.3.3.2
+  - cron-0.7.2
 
