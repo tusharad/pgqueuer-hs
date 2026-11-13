@@ -26,9 +26,8 @@ pgqueuerTests = pgqueuerTestsWith resolveConnStr
 
 pgqueuerTestsWith :: IO ByteString -> TestTree
 pgqueuerTestsWith getConnStr =
-  dependentTestGroup
+  testGroup
     "All tests"
-    AllFinish
     [ schemaTests getConnStr
     , entrypointTests getConnStr
     , enqueueDequeueJobs getConnStr

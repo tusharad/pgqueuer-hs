@@ -16,7 +16,7 @@ extra-doc-files:
 synopsis:            High-performance PostgreSQL background job queue with cron and workflows
 category:            Database, Concurrency, Distributed Computing
 stability:           experimental
-tested-with:         GHC == 9.6.6, GHC == 9.8.4, GHC == 9.10.3
+tested-with:         GHC == 9.8.4, GHC == 9.10.3
 
 description: |
   A high-throughput, type-safe PostgreSQL-backed job queue for Haskell applications.
