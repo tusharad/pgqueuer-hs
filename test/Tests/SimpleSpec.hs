@@ -10,14 +10,15 @@ import Data.ByteString (ByteString)
 import qualified Database.PostgreSQL.Simple as PG
 import PGQueuer.Backend.Simple
 import Test.Tasty
-import Tests.CoreSpec (Runner (..), connStr, coreTestsWith)
+import Tests.CoreSpec (Runner (..), coreTestsWith)
+import Tests.TestContainer (resolveConnStr)
 
 {- | Core integration tests running on the 'SimpleDb' backend.
 
 Uses the same 5 tests as HasqlDb to prove behavioral parity.
 -}
 simpleCoreTests :: TestTree
-simpleCoreTests = simpleCoreTestsWith (pure connStr)
+simpleCoreTests = simpleCoreTestsWith resolveConnStr
 
 simpleCoreTestsWith :: IO ByteString -> TestTree
 simpleCoreTestsWith getConnStr = coreTestsWith getConnStr "SimpleDb" mkSimpleRunner mkDualSimpleRunners

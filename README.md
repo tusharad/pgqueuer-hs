@@ -88,7 +88,7 @@ Add `pgqueuer-hs` to your `package.yaml`:
 
 ```yaml
 dependencies:
-  - pgqueuer-hs >= 0.0.1.0
+  - pgqueuer-hs >= 0.1.0.0
   - postgresql-simple
   - aeson
   - text
@@ -101,7 +101,7 @@ Or in your `.cabal` file:
 ```cabal
 build-depends:
     base >= 4.7 && < 5
-  , pgqueuer-hs >= 0.0.1.0
+  , pgqueuer-hs >= 0.1.0.0
 ```
 
 ---

@@ -5,9 +5,12 @@ All notable changes to `pgqueuer-hs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the [Haskell Package Versioning Policy (PVP)](https://pvp.haskell.org/).
 
-## [Unreleased]
+## [0.1.0.0] - 2026-11-14
 
 ### Added
+- **Testcontainers Integration**:
+  - Native containerized PostgreSQL 16 testing (`Tests.TestContainer`) with ephemeral port allocation, active socket readiness probing, and dynamic connection string resolution.
+  - Automatic fallback to local database when Docker/Podman is not running.
 - **Multi-Snapshot CI Matrix**:
   - Added support for multiple Stackage LTS resolvers (`stack-lts-24.52.yaml`, `stack-lts-23.28.yaml`, `stack-lts-22.44.yaml`, `stack-lts-21.25.yaml`).
   - Added dynamic matrix discovery using `freckle/stack-action/generate-matrix@v5`.
@@ -16,6 +19,8 @@ and this project adheres to the [Haskell Package Versioning Policy (PVP)](https:
   - `Tests.BufferSpec`: Concurrency, overflow triggering, timer flush, and graceful shutdown tests for `TimedOverflowBuffer`.
   - `Tests.CronSpec`: Cron expression parsing and next run calculation tests.
   - `Tests.WorkflowSpec`: Hierarchical DAG tree construction and invariant verification.
+  - `Tests.BackoffSpec`: Backoff interval calculation and jitter distribution bounds.
+  - `Tests.CoreSpec`, `Tests.SimpleSpec`, `Tests.HasqlSpec`: 100% behavioral parity verification across `SimpleDb` and `HasqlDb`.
 - **Runnable Example Executables**:
   - Added `hasql-worker` (`example/app/05-hasql-worker.hs`) showcasing the high-performance compiled binary Hasql backend with connection pooling.
   - Added `cron-pipeline` (`example/app/06-cron-pipeline.hs`) demonstrating recurring cron job scheduling and worker dispatch.
@@ -30,6 +35,11 @@ and this project adheres to the [Haskell Package Versioning Policy (PVP)](https:
   - Achieved 100% Haddock documentation coverage across all library modules.
   - Disambiguated identifier type/value links (`'t:JobId'`, `'t:Job'`, `'t:SimpleDb'`, `'t:HasqlDb'`, `'t:TimedOverflowBuffer'`, `'t:DBSettings'`).
   - Fixed out-of-scope identifier link warnings.
+- **Codebase Cleanup & Housekeeping**:
+  - Removed obsolete duplicate files (`agent.md`, `fourmolu.yml`, `example/test/Spec.hs`).
+  - Streamlined `enqueueSingle` to use direct single-element lists without custom list shadows.
+  - Pruned unused dependencies (`tasty-bench`, `tasty`) from benchmark harness.
+  - Extended Fourmolu formatting to cover `bench/` and `example/`.
 - **Fourmolu Formatting**:
   - Cleaned and formatted all source trees (`src`, `test`, `bench`, `example`) conforming strictly to `fourmolu.yaml`.
 - **Database Engine Compatibility**:

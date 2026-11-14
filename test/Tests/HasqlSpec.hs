@@ -9,14 +9,15 @@ where
 import Data.ByteString (ByteString)
 import PGQueuer.Backend.Hasql
 import Test.Tasty
-import Tests.CoreSpec (Runner (..), connStr, coreTestsWith)
+import Tests.CoreSpec (Runner (..), coreTestsWith)
+import Tests.TestContainer (resolveConnStr)
 
 {- | Core integration tests running on the 'HasqlDb' backend.
 
 Uses the same 5 tests as SimpleDb to prove 100% behavioral parity.
 -}
 hasqlCoreTests :: TestTree
-hasqlCoreTests = hasqlCoreTestsWith (pure connStr)
+hasqlCoreTests = hasqlCoreTestsWith resolveConnStr
 
 hasqlCoreTestsWith :: IO ByteString -> TestTree
 hasqlCoreTestsWith getConnStr = coreTestsWith getConnStr "HasqlDb" mkHasqlRunner mkDualHasqlRunners
