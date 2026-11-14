@@ -63,22 +63,19 @@ enqueueSingle ::
   Maybe Value ->
   JobStatus ->
   IO [JobId]
-enqueueSingle conn settings entrypoint payload priority executeAfter dedupeKey headers parentId parentState status = do
+enqueueSingle conn settings entrypoint payload priority executeAfter dedupeKey headers parentId parentState status =
   enqueueMultiple
     conn
     settings
     [entrypoint]
-    (maybeToList payload)
+    [payload]
     [priority]
-    (maybeToList executeAfter)
-    (maybeToList dedupeKey)
-    (maybeToList headers)
+    [executeAfter]
+    [dedupeKey]
+    [headers]
     [parentId]
     [parentState]
     [status]
-  where
-    maybeToList Nothing = []
-    maybeToList (Just x) = [Just x]
 
 -- | Enqueue multiple jobs
 enqueueMultiple ::

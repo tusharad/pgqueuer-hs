@@ -34,6 +34,7 @@ import PGQueuer.Types
 import PGQueuer.Workflow (JobNode (..), insertJobTree, (<~~))
 import Test.Tasty
 import Test.Tasty.HUnit
+import Tests.TestContainer (resolveConnStr)
 
 -- | Connection string used for testing.
 connStr :: ByteString
@@ -64,7 +65,7 @@ coreTests ::
   (Connection -> DBSettings -> IO (Runner, Runner, IO ())) ->
   TestTree
 coreTests label mkRunner mkDualRunners =
-  coreTestsWith (pure connStr) label (\_ c s -> mkRunner c s) (\_ c s -> mkDualRunners c s)
+  coreTestsWith resolveConnStr label (\_ c s -> mkRunner c s) (\_ c s -> mkDualRunners c s)
 
 -- | Core integration tests parameterized with a dynamic connection string action.
 coreTestsWith ::
@@ -101,7 +102,7 @@ withFreshSchemaWith getConnStr action = do
 
 -- | Set up a fresh schema using the default connStr.
 withFreshSchema :: (Connection -> DBSettings -> IO a) -> IO a
-withFreshSchema action = withFreshSchemaWith (pure connStr) (\_ conn settings -> action conn settings)
+withFreshSchema action = withFreshSchemaWith resolveConnStr (\_ conn settings -> action conn settings)
 
 {- | Test: Call enqueue with an entrypoint and payload
 Expectation: Return value contains a valid JobId; row exists in 'pgqueuer' table
@@ -110,7 +111,7 @@ testEnqueueCapturesJobId ::
   (Connection -> DBSettings -> IO (Runner, IO ())) ->
   TestTree
 testEnqueueCapturesJobId mkRunner =
-  testEnqueueCapturesJobIdWith (pure connStr) (\_ c s -> mkRunner c s)
+  testEnqueueCapturesJobIdWith resolveConnStr (\_ c s -> mkRunner c s)
 
 testEnqueueCapturesJobIdWith ::
   IO ByteString ->
@@ -155,7 +156,7 @@ testConcurrentDequeueSkipLocked ::
   TestTree
 testConcurrentDequeueSkipLocked mkRunner mkDualRunners =
   testConcurrentDequeueSkipLockedWith
-    (pure connStr)
+    resolveConnStr
     (\_ c s -> mkRunner c s)
     (\_ c s -> mkDualRunners c s)
 
@@ -211,7 +212,7 @@ testLogJobsTransitionsStatus ::
   (Connection -> DBSettings -> IO (Runner, IO ())) ->
   TestTree
 testLogJobsTransitionsStatus mkRunner =
-  testLogJobsTransitionsStatusWith (pure connStr) (\_ c s -> mkRunner c s)
+  testLogJobsTransitionsStatusWith resolveConnStr (\_ c s -> mkRunner c s)
 
 testLogJobsTransitionsStatusWith ::
   IO ByteString ->
@@ -269,7 +270,7 @@ testWithTransactionRollback ::
   (Connection -> DBSettings -> IO (Runner, IO ())) ->
   TestTree
 testWithTransactionRollback mkRunner =
-  testWithTransactionRollbackWith (pure connStr) (\_ c s -> mkRunner c s)
+  testWithTransactionRollbackWith resolveConnStr (\_ c s -> mkRunner c s)
 
 testWithTransactionRollbackWith ::
   IO ByteString ->
@@ -314,7 +315,7 @@ testJobTreeRollup ::
   (Connection -> DBSettings -> IO (Runner, IO ())) ->
   TestTree
 testJobTreeRollup mkRunner =
-  testJobTreeRollupWith (pure connStr) (\_ c s -> mkRunner c s)
+  testJobTreeRollupWith resolveConnStr (\_ c s -> mkRunner c s)
 
 testJobTreeRollupWith ::
   IO ByteString ->

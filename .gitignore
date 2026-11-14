@@ -5,3 +5,9 @@ code.txt
 dist-newstyle/
 pgqueuer-hs.txt
 .DS_Store
+.hie/
+*.dump-hi
+*.dump-simpl
+.cabal-sandbox/
+cabal.sandbox.config
+*.orig

@@ -5,7 +5,7 @@ cabal-version: 1.18
 -- see: https://github.com/sol/hpack
 
 name:           pgqueuer-hs
-version:        0.0.1.0
+version:        0.1.0.0
 synopsis:       High-performance PostgreSQL background job queue with cron and workflows
 description:    A high-throughput, type-safe PostgreSQL-backed job queue for Haskell applications.
                 Inspired by pgqueuer in Python, pgqueuer-hs leverages PostgreSQL's LISTEN / NOTIFY
@@ -175,8 +175,6 @@ benchmark pgqueuer-hs-bench
     , postgresql-simple >=0.7 && <0.9
     , random ==1.2.*
     , stm >=2.5 && <3
-    , tasty >=1.4 && <2
-    , tasty-bench >=0.3 && <1
     , text >=1.2 && <3
     , time >=1.9 && <2
     , unliftio ==0.2.*

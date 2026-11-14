@@ -8,10 +8,10 @@ import Test.Tasty.Runners (NumThreads (..))
 import Tests.BackoffSpec (backoffTests)
 import Tests.BufferSpec (bufferTests)
 import Tests.CronSpec (cronTests)
-import Tests.HasqlSpec (hasqlCoreTests, hasqlCoreTestsWith)
-import Tests.PGQueuer (pgqueuerTests, pgqueuerTestsWith)
-import Tests.SimpleSpec (simpleCoreTests, simpleCoreTestsWith)
-import Tests.TestContainer (withPostgresTestContainer)
+import Tests.HasqlSpec (hasqlCoreTestsWith)
+import Tests.PGQueuer (pgqueuerTestsWith)
+import Tests.SimpleSpec (simpleCoreTestsWith)
+import Tests.TestContainer (resolveConnStr, withPostgresTestContainer)
 import Tests.TypesSpec (typesTests)
 import Tests.WorkflowSpec (workflowTests)
 
@@ -21,6 +21,17 @@ main = do
   let runTestContainers = case useTC of
         Just v | v `elem` ["1", "true", "TRUE", "yes", "YES"] -> True
         _ -> False
+
+  let e2eGroup label getConnStr =
+        testGroup
+          label
+          [ pgqueuerTestsWith getConnStr
+          , testGroup
+              "Core - Backend Parity"
+              [ simpleCoreTestsWith getConnStr
+              , hasqlCoreTestsWith getConnStr
+              ]
+          ]
 
   defaultMain
     $ localOption (NumThreads 1)
@@ -32,24 +43,6 @@ main = do
       , workflowTests
       , backoffTests
       , if runTestContainers
-          then withPostgresTestContainer $ \getConnStr ->
-            testGroup
-              "End-to-End Tests (Testcontainers PostgreSQL 16)"
-              [ pgqueuerTestsWith getConnStr
-              , testGroup
-                  "Core - Backend Parity"
-                  [ simpleCoreTestsWith getConnStr
-                  , hasqlCoreTestsWith getConnStr
-                  ]
-              ]
-          else
-            testGroup
-              "End-to-End Tests"
-              [ pgqueuerTests
-              , testGroup
-                  "Core - Backend Parity"
-                  [ simpleCoreTests
-                  , hasqlCoreTests
-                  ]
-              ]
+          then withPostgresTestContainer (e2eGroup "End-to-End Tests (Testcontainers PostgreSQL 16)")
+          else e2eGroup "End-to-End Tests" resolveConnStr
       ]

@@ -107,10 +107,10 @@ This repository contains a GitHub Actions workflow (`.github/workflows/publish-h
 1. Ensure `CHANGELOG.md` and `package.yaml` have the updated version number according to the [Haskell Package Versioning Policy (PVP)](https://pvp.haskell.org/).
 2. Run `make release-check` to verify all builds, tests, and tarballs succeed locally.
 3. Commit and push changes to `main`.
-4. Create and push a git tag prefixed with `v` (e.g. `v0.0.1.0`):
+4. Create and push a git tag prefixed with `v` (e.g. `v0.1.0.0`):
    ```bash
-   git tag -a v0.0.1.0 -m "Release v0.0.1.0"
-   git push origin v0.0.1.0
+   git tag -a v0.1.0.0 -m "Release v0.1.0.0"
+   git push origin v0.1.0.0
    ```
 5. The GitHub Actions runner will automatically build the source tarball and Haddock archive and upload them to Hackage using repository secret `HACKAGE_TOKEN` (or `HACKAGE_USERNAME` and `HACKAGE_PASSWORD`).
 
