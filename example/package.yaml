@@ -1,23 +1,17 @@
 name:                example
 version:             0.1.0.0
-github:              "githubuser/example"
-license:             BSD-3-Clause
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2026 Author name here"
+github:              "tusharad/pgqueuer-hs"
+license:             MIT
+author:              "Tushar Adhatrao"
+maintainer:          "tusharadhatrao@gmail.com"
+copyright:           "2026 Tushar Adhatrao"
 
 extra-source-files:
 - README.md
 - CHANGELOG.md
+- LICENSE
 
-# Metadata used when publishing your package
-# synopsis:            Short description of your package
-# category:            Web
-
-# To avoid duplicated efforts in documentation and dealing with the
-# complications of embedding Haddock markup inside cabal files, it is
-# common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/githubuser/example#readme>
+description:         Please see the README on GitHub at <https://github.com/tusharad/pgqueuer-hs#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -40,27 +34,49 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 
-library:
-  source-dirs: src
-
 executables:
-  example-exe:
-    main:                Main.hs
-    source-dirs:         app
+  hello-mailer:
+    main:                app/01-hello-mailer.hs
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - example
+    - random
 
-tests:
-  example-test:
-    main:                Spec.hs
-    source-dirs:         test
+  resilient-scraper:
+    main:                app/02-resilient-scraper.hs
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+
+  map-reduce-etl:
+    main:                app/03-map-reduce-etl.hs
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+
+  chaos-ecommerce:
+    main:                app/04-chaos-ecommerce.hs
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - example
+    - random
+
+  hasql-worker:
+    main:                app/05-hasql-worker.hs
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+
+  cron-pipeline:
+    main:                app/06-cron-pipeline.hs
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N

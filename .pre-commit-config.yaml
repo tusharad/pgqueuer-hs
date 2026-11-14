@@ -4,7 +4,7 @@ repos:
     -   id: fourmolu
         name: fourmolu
         description: "Formatter for Haskell source code."
-        entry: fourmolu -i src test
+        entry: fourmolu -i src test bench example
         language: system
         types: [haskell]
 

@@ -1,0 +1,79 @@
+name: Publish to Hackage
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Build & Publish Package and Haddock Docs to Hackage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.10.1'
+          cabal-version: '3.12.1.0'
+
+      - name: Cache Cabal store
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-ghc-9.10.1-${{ hashFiles('**/*.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-9.10.1-
+
+      - name: Verify package checks
+        run: |
+          cabal check
+
+      - name: Build Source Distribution Tarball
+        run: |
+          cabal sdist
+
+      - name: Build Haddock Documentation Tarball for Hackage
+        run: |
+          cabal haddock --haddock-for-hackage --enable-doc
+
+      - name: Upload Package to Hackage
+        env:
+          HACKAGE_TOKEN: ${{ secrets.HACKAGE_TOKEN }}
+          HACKAGE_USERNAME: ${{ secrets.HACKAGE_USERNAME }}
+          HACKAGE_PASSWORD: ${{ secrets.HACKAGE_PASSWORD }}
+        run: |
+          SDIST_FILE=$(ls dist-newstyle/sdist/pgqueuer-hs-*.tar.gz | head -n 1)
+          echo "Publishing package ${SDIST_FILE} to Hackage..."
+          if [ -n "${HACKAGE_TOKEN}" ]; then
+            cabal upload --publish -t "${HACKAGE_TOKEN}" "${SDIST_FILE}"
+          elif [ -n "${HACKAGE_USERNAME}" ] && [ -n "${HACKAGE_PASSWORD}" ]; then
+            cabal upload --publish -u "${HACKAGE_USERNAME}" -p "${HACKAGE_PASSWORD}" "${SDIST_FILE}"
+          else
+            echo "::error::Neither HACKAGE_TOKEN nor HACKAGE_USERNAME/HACKAGE_PASSWORD is set in repository secrets."
+            exit 1
+          fi
+
+      - name: Upload Haddock Documentation to Hackage
+        env:
+          HACKAGE_TOKEN: ${{ secrets.HACKAGE_TOKEN }}
+          HACKAGE_USERNAME: ${{ secrets.HACKAGE_USERNAME }}
+          HACKAGE_PASSWORD: ${{ secrets.HACKAGE_PASSWORD }}
+        run: |
+          DOCS_FILE=$(ls dist-newstyle/pgqueuer-hs-*-docs.tar.gz | head -n 1)
+          echo "Publishing Haddock documentation ${DOCS_FILE} to Hackage..."
+          if [ -n "${HACKAGE_TOKEN}" ]; then
+            cabal upload --publish -d -t "${HACKAGE_TOKEN}" "${DOCS_FILE}"
+          elif [ -n "${HACKAGE_USERNAME}" ] && [ -n "${HACKAGE_PASSWORD}" ]; then
+            cabal upload --publish -d -u "${HACKAGE_USERNAME}" -p "${HACKAGE_PASSWORD}" "${DOCS_FILE}"
+          else
+            echo "::error::Neither HACKAGE_TOKEN nor HACKAGE_USERNAME/HACKAGE_PASSWORD is set in repository secrets."
+            exit 1
+          fi
+

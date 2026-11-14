@@ -1,0 +1,121 @@
+name: Haskell CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main", "develop"]
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Fourmolu Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: haskell-actions/run-fourmolu@v13
+        with:
+          version: "0.21.0.0"
+
+  hlint:
+    name: HLint Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up HLint
+        uses: haskell-actions/hlint-setup@v2
+        with:
+          version: '3.10'
+      - name: Run HLint
+        uses: haskell-actions/hlint-run@v2
+        with:
+          path: '["src", "test", "bench", "example"]'
+          fail-on: warning
+
+  cabal-check:
+    name: Cabal Package Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.10.1'
+          cabal-version: '3.12.1.0'
+      - name: Run cabal check
+        run: cabal check
+
+  generate:
+    name: Generate Stack Matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: generate
+        uses: freckle/stack-action/generate-matrix@v5
+    outputs:
+      stack-yamls: ${{ steps.generate.outputs.stack-yamls }}
+
+  build:
+    name: Build (${{ matrix.stack-yaml }})
+    needs: [generate, hlint, format]
+    strategy:
+      matrix:
+        stack-yaml: ${{ fromJSON(needs.generate.outputs.stack-yamls) }}
+      fail-fast: false
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies and build
+        uses: freckle/stack-action@v5
+        with:
+          stack-arguments: --stack-yaml ${{ matrix.stack-yaml }}
+          test: false
+
+  test:
+    name: Integration & Unit Tests
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      USE_TESTCONTAINERS: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run test suite against PostgreSQL
+        uses: freckle/stack-action@v5
+
+  benchmarks:
+    name: Compile Benchmarks
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify benchmarks compile
+        run: stack bench --no-run-benchmarks
+
+  examples:
+    name: Build Examples
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build example package
+        uses: freckle/stack-action@v5
+        with:
+          working-directory: example
+          test: false
+
+  docs:
+    name: Haddock Verification
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Haddock documentation
+        run: stack haddock --no-haddock-deps
+

@@ -1,14 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module PGQueuer.Listener (
-    listen,
-    unlisten,
-    unlistenAll,
-    getNextNotification,
-    notifyJobCancellation,
-    notifyHealthCheck,
-    parseEventPayload,
-) where
+{- |
+Module      : PGQueuer.Listener
+Description : PostgreSQL LISTEN/NOTIFY event listener and event publisher.
+Copyright   : (c) Tushar Adhatrao, 2026
+License     : MIT
+Maintainer  : tusharadhatrao@gmail.com
+Stability   : experimental
+
+Provides functions for subscribing to PostgreSQL asynchronous notifications
+(@LISTEN@ / @UNLISTEN@) and publishing cancellation or health check signals.
+-}
+module PGQueuer.Listener
+  ( listen
+  , unlisten
+  , unlistenAll
+  , getNextNotification
+  , notifyJobCancellation
+  , notifyHealthCheck
+  , parseEventPayload
+  ) where
 
 import Control.Monad (void)
 import Data.Aeson ((.=))
@@ -27,17 +38,17 @@ import PGQueuer.Types (Channel (..), defaultChannel)
 -- | Listen for notifications on a specific channel
 listen :: Connection -> T.Text -> IO ()
 listen conn channel =
-    void $ execute_ conn (Query $ TE.encodeUtf8 ("LISTEN " <> channel))
+  void $ execute_ conn (Query $ TE.encodeUtf8 ("LISTEN " <> channel))
 
 -- | Stop listening on a specific channel
 unlisten :: Connection -> T.Text -> IO ()
 unlisten conn channel =
-    void $ execute_ conn (Query $ TE.encodeUtf8 ("UNLISTEN " <> channel))
+  void $ execute_ conn (Query $ TE.encodeUtf8 ("UNLISTEN " <> channel))
 
 -- | Stop listening on all channels
 unlistenAll :: Connection -> IO ()
 unlistenAll conn =
-    void $ execute_ conn (Query "UNLISTEN *;")
+  void $ execute_ conn (Query "UNLISTEN *;")
 
 -- | Get the next notification, blocking until available
 getNextNotification :: Connection -> IO (Maybe Notification)
@@ -45,7 +56,7 @@ getNextNotification conn = Just <$> getNotification conn
 
 sendNotification :: Connection -> Aeson.Value -> IO ()
 sendNotification conn payload =
-    void $ execute conn "NOTIFY pgqueuer, ?" (Only payloadText)
+  void $ execute conn "NOTIFY pgqueuer, ?" (Only payloadText)
   where
     payloadText = TE.decodeUtf8 . BL.toStrict $ Aeson.encode payload
 
@@ -57,35 +68,35 @@ notificationChannel = channelText
 -- | Send a job cancellation notification
 notifyJobCancellation :: Connection -> Int -> IO ()
 notifyJobCancellation conn jobId = do
-    sentAt <- getCurrentTime
-    sendNotification
-        conn
-        ( Aeson.object
-            [ "channel" .= notificationChannel
-            , "sent_at" .= sentAt
-            , "type" .= ("cancellation_event" :: T.Text)
-            , "ids" .= ([jobId] :: [Int])
-            ]
-        )
+  sentAt <- getCurrentTime
+  sendNotification
+    conn
+    ( Aeson.object
+        [ "channel" .= notificationChannel
+        , "sent_at" .= sentAt
+        , "type" .= ("cancellation_event" :: T.Text)
+        , "ids" .= ([jobId] :: [Int])
+        ]
+    )
 
 -- | Send a health check notification
 notifyHealthCheck :: Connection -> IO ()
 notifyHealthCheck conn = do
-    sentAt <- getCurrentTime
-    healthCheckId <- nextRandom
-    sendNotification
-        conn
-        ( Aeson.object
-            [ "channel" .= notificationChannel
-            , "sent_at" .= sentAt
-            , "type" .= ("health_check_event" :: T.Text)
-            , "id" .= healthCheckId
-            ]
-        )
+  sentAt <- getCurrentTime
+  healthCheckId <- nextRandom
+  sendNotification
+    conn
+    ( Aeson.object
+        [ "channel" .= notificationChannel
+        , "sent_at" .= sentAt
+        , "type" .= ("health_check_event" :: T.Text)
+        , "id" .= healthCheckId
+        ]
+    )
 
 -- | Parse event payload from notification
 parseEventPayload :: BS.ByteString -> Either String String
 parseEventPayload payload =
-    case Aeson.eitherDecodeStrict' payload :: Either String Aeson.Value of
-        Left err -> Left err
-        Right _ -> Right (BS.unpack payload)
+  case Aeson.eitherDecodeStrict' payload :: Either String Aeson.Value of
+    Left err -> Left err
+    Right _ -> Right (BS.unpack payload)

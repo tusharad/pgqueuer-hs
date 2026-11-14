@@ -1,3 +1,7 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {- |
 Module      : PGQueuer
 Description : Main interface for the PGQueuer job queue ecosystem.
@@ -10,202 +14,389 @@ This module provides the high-level API for interacting with PGQueuer.
 It re-exports essential types and settings required to configure,
 manage, and interact with the database-backed queue.
 -}
-module PGQueuer (
-    -- * Queue Manager
-    QueueManager (..),
-    createQueueManager,
-    withQueueManager,
+module PGQueuer
+  ( -- * Queue Manager
+    QueueManager (..)
+  , createQueueManager
+  , withQueueManager
 
     -- * Entrypoint Management
-    registerEntrypoint,
+  , EntrypointHandler
+  , registerEntrypoint
+  , registerSchedule
 
     -- * Job Operations
-    workerLoop,
-    enqueue,
-    enqueueMultiple,
-    dequeue,
-    markJobAsCancelled,
-    requeueJobs,
-    retryJob,
-    updateHeartbeat,
-    logJobs,
+  , workerLoop
+  , enqueue
+  , enqueueMultiple
+  , insertJobTree
+  , JobTree (..)
+  , JobNode (..)
+  , (<~~)
+  , dequeue
+  , markJobAsCancelled
+  , requeueJobs
+  , retryJobs
+  , updateHeartbeat
+  , logJobs
 
     -- * Queue Statistics and Management
-    getQueueSize,
-    clearQueue,
-    listFailedJobs,
-    listJobStatusById,
+  , getQueueSize
+  , clearQueue
+  , listFailedJobs
+  , listJobStatusById
 
     -- * Schema management
-    verifyStructure,
-    installSchema,
-    uninstallSchema,
+  , setupSchema
+  , verifyStructure
+  , installSchema
+  , uninstallSchema
 
     -- * Re-exported modules
-    module PGQueuer.Types,
-    module PGQueuer.Settings,
-) where
+  , module PGQueuer.Types
+  , module PGQueuer.Settings
+  , module PGQueuer.Worker.Buffer
+  ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (bracket)
+
+import Control.Concurrent.Async (withAsync)
 import Control.Monad (forever)
-import Data.Aeson (Value)
+import Data.Aeson (Value (String))
+#ifdef OTEL
+import Data.Aeson (Value (Object))
+import qualified Data.Aeson.KeyMap as KM
+#endif
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
+import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
-import Data.Time (NominalDiffTime)
+import qualified Data.Text as T
+import Data.Time (NominalDiffTime, UTCTime)
+import Data.Time.Clock (addUTCTime, getCurrentTime)
 import Data.UUID (UUID)
 import Database.PostgreSQL.Simple (Connection, close, connectPostgreSQL)
+import UnliftIO.Exception (SomeException, bracket, catch, fromException)
 
+import PGQueuer.Backend.Simple (SimpleDbEnv (..), runSimpleDb)
 import qualified PGQueuer.Query as Q
 import PGQueuer.Schema (install, uninstall, verifyStructure_)
 import PGQueuer.Settings
 import PGQueuer.Types
+import PGQueuer.Worker.Backoff
+import PGQueuer.Worker.Buffer
+import PGQueuer.Worker.Cron
+
+#ifdef OTEL
+import PGQueuer.Tracing (injectOtelContext, withJobSpan)
+#endif 
+import PGQueuer.Workflow (JobNode (..), JobTree (..), (<~~))
+import qualified PGQueuer.Workflow as Workflow
 
 -- | Core state context for managing Queue.
 data QueueManager = QueueManager
-    { qmConnection :: Connection
-    -- ^ Database connection
-    , qmSettings :: DBSettings
-    -- ^ Database settings
-    , qmEntrypoints :: Map Text EntrypointHandler
-    -- ^ Registered entrypoint handlers
-    , qmQueueManagerId :: UUID
-    -- ^ Unique identifier for this QueueManager instance
-    }
+  { qmConnection :: Connection
+  -- ^ Database connection
+  , qmSettings :: DBSettings
+  -- ^ Database settings
+  , qmEntrypoints :: Map Text EntrypointHandler
+  -- ^ Registered entrypoint handlers
+  , qmQueueManagerId :: UUID
+  -- ^ Unique identifier for this QueueManager instance
+  }
 
 -- | Entrypoint handler type
 type EntrypointHandler = Job -> IO ()
 
 -- | Create a new QueueManager from a connection
 createQueueManager ::
-    -- | Database connection
-    Connection ->
-    -- | Database settings
-    DBSettings ->
-    -- | Unique identifier for this QueueManager instance
-    UUID ->
-    IO QueueManager
+  -- | Database connection
+  Connection ->
+  -- | Database settings
+  DBSettings ->
+  -- | Unique identifier for this QueueManager instance
+  UUID ->
+  IO QueueManager
 createQueueManager conn settings queueMgrId = do
-    return $
-        QueueManager
-            { qmConnection = conn
-            , qmSettings = settings
-            , qmEntrypoints = Map.empty
-            , qmQueueManagerId = queueMgrId
-            }
+  return $
+    QueueManager
+      { qmConnection = conn
+      , qmSettings = settings
+      , qmEntrypoints = Map.empty
+      , qmQueueManagerId = queueMgrId
+      }
 
 -- | Register an entrypoint handler
 registerEntrypoint ::
-    -- | QueueManager instance
-    QueueManager ->
-    -- | Entrypoint to register
-    Entrypoint ->
-    -- | Handler function for the entrypoint
-    EntrypointHandler ->
-    IO QueueManager
+  -- | QueueManager instance
+  QueueManager ->
+  -- | Entrypoint to register
+  Entrypoint ->
+  -- | Handler function for the entrypoint
+  EntrypointHandler ->
+  IO QueueManager
 registerEntrypoint qm (Entrypoint ep) handler = do
-    return
-        qm
-            { qmEntrypoints = Map.insert ep handler (qmEntrypoints qm)
-            }
+  return
+    qm
+      { qmEntrypoints = Map.insert ep handler (qmEntrypoints qm)
+      }
 
--- | Continuously dequeue jobs and dispatch them to registered handlers.
-workerLoop :: QueueManager -> [EntrypointExecutionParameter] -> IO ()
-workerLoop qm params = forever $ do
-    jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
-    if null jobs
-        then threadDelay 1000000
-        else mapM_ (dispatchJob qm) jobs
+-- | Register a cron schedule for a specific entrypoint
+registerSchedule ::
+  -- | QueueManager instance
+  QueueManager ->
+  -- | Cron expression (e.g. "*/5 * * * *")
+  CronExpression ->
+  -- | Entrypoint to invoke
+  Entrypoint ->
+  IO ()
+registerSchedule qm expr ep = do
+  Q.insertSchedule (qmConnection qm) (qmSettings qm) expr ep
 
-dispatchJob :: QueueManager -> Job -> IO ()
-dispatchJob qm job =
-    case Map.lookup entrypointName (qmEntrypoints qm) of
-        Nothing -> fail $ "No handler registered for entrypoint: " ++ show entrypointName
-        Just handler -> handler job
+{- | Continuously dequeue jobs and dispatch them to registered handlers.
+
+Uses STM-backed 'JobStatusLogBuffer' and 'HeartbeatBuffer' to decouple
+worker threads from database round-trips. Instead of calling 'logJobs'
+and 'updateHeartbeat' synchronously for each batch, this loop pushes
+results into STM buffers. Dedicated background flusher threads drain
+the buffers and issue bulk database writes when either the buffer
+overflows or a timer interval expires.
+
+Both buffers are cleanly drained on exit via 'withBuffer' brackets,
+ensuring no data loss during graceful shutdown.
+-}
+workerLoop :: QueueManager -> BufferConfig -> [EntrypointExecutionParameter] -> IO ()
+workerLoop qm bufConfig params = do
+  let conn = qmConnection qm
+      settings = qmSettings qm
+      logSink = Q.logJobs conn settings
+      hbSink = Q.updateHeartbeat conn settings
+      retrySink = Q.retryJobs conn settings
+      -- Build a map of execution parameters for quick lookup
+      paramMap = Map.fromList [(paramEntrypoint p, p) | p <- params]
+  withBuffer bufConfig logSink $ \logBuf ->
+    withBuffer bufConfig hbSink $ \hbBuf ->
+      withBuffer bufConfig retrySink $ \retryBuf ->
+        withAsync (runCronScheduler conn settings) $ \_cronAsync ->
+          forever $ do
+            jobs <- dequeue qm defaultBatchSize params Nothing defaultHeartbeatTimeout
+            if null jobs
+              then threadDelay 1000000
+              else do
+                -- Buffer heartbeats for all picked jobs
+                mapM_ (add hbBuf . jobId) jobs
+                -- Dispatch and buffer ACKs or Retries
+                mapM_ (dispatchJob qm logBuf retryBuf paramMap) jobs
+
+#ifdef OTEL
+wrapJobHandler :: Job -> (Job -> IO ()) -> IO ()
+wrapJobHandler job handler = withJobSpan (jobEntrypoint job) (jobId job) (jobHeaders job) (handler job)
+#else
+wrapJobHandler :: Job -> (Job -> IO ()) -> IO ()
+wrapJobHandler job handler = handler job
+#endif
+
+-- | Dispatch a job to its handler and buffer the result.
+dispatchJob ::
+  QueueManager ->
+  JobStatusLogBuffer ->
+  RetryBuffer ->
+  Map Entrypoint EntrypointExecutionParameter ->
+  Job ->
+  IO ()
+dispatchJob qm logBuf retryBuf paramMap job =
+  case Map.lookup entrypointName (qmEntrypoints qm) of
+    Nothing -> fail $ "No handler registered for entrypoint: " ++ show entrypointName
+    Just handler -> do
+      (wrapJobHandler job handler >> add logBuf (jobId job, Successful, Nothing))
+        `catch` \e -> handleJobException e
   where
     Entrypoint entrypointName = jobEntrypoint job
+    epParam = Map.lookup (jobEntrypoint job) paramMap
+
+    handleJobException :: SomeException -> IO ()
+    handleJobException e = do
+      -- Check if it's a permanent exception
+      case fromException e of
+        Just (JobPermanentException msg) ->
+          add logBuf (jobId job, Failed, Just $ String msg)
+        Nothing -> do
+          -- It's either a JobRetryableException or SomeException.
+          let msg = case fromException e of
+                Just (JobRetryableException m) -> m
+                Nothing -> T.pack $ show e
+
+          -- Route to retry or DLQ
+          case epParam of
+            Nothing ->
+              -- No param means no retry config, default to failed
+              add logBuf (jobId job, Failed, Just $ String msg)
+            Just param -> do
+              let currentAttempts = jobAttempts job
+                  maxAttempts = paramMaxAttempts param
+              if currentAttempts + 1 >= maxAttempts
+                then add logBuf (jobId job, Failed, Just $ String msg)
+                else do
+                  let strategy = paramBackoffStrategy param
+                      jitter = paramJitter param
+                      baseDelay = calculateBackoff strategy (currentAttempts + 1)
+
+                  jitteredDelay <- applyJitter jitter baseDelay
+                  now <- getCurrentTime
+                  let newExecuteAfter = addUTCTime jitteredDelay now
+                      newAttempts = fromIntegral (currentAttempts + 1) :: Int32
+
+                  add retryBuf (jobId job, newExecuteAfter, newAttempts)
 
 -- ============================================================================
 -- Queue operations (wrappers around Query module)
 -- ============================================================================
 
+#ifdef OTEL
+injectOtelIntoHeaders :: Maybe Value -> IO (Maybe Value)
+injectOtelIntoHeaders headers = do
+    mOtelHeaders <- injectOtelContext
+    return $ case (headers, mOtelHeaders) of
+        (Nothing, Nothing) -> Nothing
+        (Just h, Nothing) -> Just h
+        (Nothing, Just oh) -> Just (Object (KM.singleton "otel" oh))
+        (Just (Object hMap), Just oh) -> Just (Object (KM.insert "otel" oh hMap))
+        (Just other, Just _) -> Just other
+
+injectOtelIntoHeadersList :: [Maybe Value] -> IO [Maybe Value]
+injectOtelIntoHeadersList headersList = do
+    mOtelHeaders <- injectOtelContext
+    let injectOtel headers = case (headers, mOtelHeaders) of
+            (Nothing, Nothing) -> Nothing
+            (Just h, Nothing) -> Just h
+            (Nothing, Just oh) -> Just (Object (KM.singleton "otel" oh))
+            (Just (Object hMap), Just oh) -> Just (Object (KM.insert "otel" oh hMap))
+            (Just other, Just _) -> Just other
+    return $ map injectOtel headersList
+
+injectOtelIntoTree :: JobTree -> IO JobTree
+injectOtelIntoTree tree = do
+    mOtelHeaders <- injectOtelContext
+    let injectOtel headers = case (headers, mOtelHeaders) of
+            (Nothing, Nothing) -> Nothing
+            (Just h, Nothing) -> Just h
+            (Nothing, Just oh) -> Just (Object (KM.singleton "otel" oh))
+            (Just (Object hMap), Just oh) -> Just (Object (KM.insert "otel" oh hMap))
+            (Just other, Just _) -> Just other
+    return $ Workflow.mapJobTreeHeaders injectOtel tree
+#else
+injectOtelIntoHeaders :: Maybe Value -> IO (Maybe Value)
+injectOtelIntoHeaders = return
+
+injectOtelIntoHeadersList :: [Maybe Value] -> IO [Maybe Value]
+injectOtelIntoHeadersList = return
+
+injectOtelIntoTree :: JobTree -> IO JobTree
+injectOtelIntoTree = return
+#endif
+
 -- | Enqueue a single job
 enqueue ::
-    -- | QueueManager instance
-    QueueManager ->
-    -- | Entrypoint for the job
-    Entrypoint ->
-    -- | Optional payload for the job
-    Maybe BL.ByteString ->
-    -- | Priority of the job
-    Int ->
-    -- | Optional delay before the job can be executed
-    Maybe NominalDiffTime ->
-    -- | Optional deduplication key for the job
-    Maybe Text ->
-    -- | Optional headers for the job
-    Maybe Value ->
-    IO [JobId]
-enqueue qm =
-    Q.enqueueSingle
-        (qmConnection qm)
-        (qmSettings qm)
+  -- | QueueManager instance
+  QueueManager ->
+  -- | Entrypoint for the job
+  Entrypoint ->
+  -- | Optional payload for the job
+  Maybe BL.ByteString ->
+  -- | Priority of the job
+  Int ->
+  -- | Optional delay before the job can be executed
+  Maybe NominalDiffTime ->
+  -- | Optional deduplication key for the job
+  Maybe Text ->
+  -- | Optional headers for the job
+  Maybe Value ->
+  IO [JobId]
+enqueue qm entrypoint payload priority executeAfter dedupeKey headers = do
+  finalHeaders <- injectOtelIntoHeaders headers
+  Q.enqueueSingle
+    (qmConnection qm)
+    (qmSettings qm)
+    entrypoint
+    payload
+    priority
+    executeAfter
+    dedupeKey
+    finalHeaders
+    Nothing
+    Nothing
+    Queued
 
 -- | Enqueue multiple jobs
 enqueueMultiple ::
-    -- | QueueManager instance
-    QueueManager ->
-    -- | List of entrypoints for the jobs
-    [Entrypoint] ->
-    -- | List of optional payloads for the jobs
-    [Maybe BL.ByteString] ->
-    -- | List of priorities for the jobs
-    [Int] ->
-    -- | List of optional delays before the jobs can be executed
-    [Maybe NominalDiffTime] ->
-    -- | List of optional deduplication keys for the jobs
-    [Maybe Text] ->
-    -- | List of optional headers for the jobs
-    [Maybe Value] ->
-    IO [JobId]
-enqueueMultiple qm =
-    Q.enqueueMultiple
-        (qmConnection qm)
-        (qmSettings qm)
+  -- | QueueManager instance
+  QueueManager ->
+  -- | List of entrypoints for the jobs
+  [Entrypoint] ->
+  -- | List of optional payloads for the jobs
+  [Maybe BL.ByteString] ->
+  -- | List of priorities for the jobs
+  [Int] ->
+  -- | List of optional delays before the jobs can be executed
+  [Maybe NominalDiffTime] ->
+  -- | List of optional deduplication keys for the jobs
+  [Maybe Text] ->
+  -- | List of optional headers for the jobs
+  [Maybe Value] ->
+  IO [JobId]
+enqueueMultiple qm entrypoints payloads priorities executeAfters dedupeKeys headersList = do
+  finalHeadersList <- injectOtelIntoHeadersList headersList
+  Q.enqueueMultiple
+    (qmConnection qm)
+    (qmSettings qm)
+    entrypoints
+    payloads
+    priorities
+    executeAfters
+    dedupeKeys
+    finalHeadersList
+    (replicate (length entrypoints) Nothing)
+    (replicate (length entrypoints) Nothing)
+    (replicate (length entrypoints) Queued)
+
+-- | Insert a JobTree using the QueueManager
+insertJobTree :: QueueManager -> JobTree -> IO ()
+insertJobTree qm tree = do
+  finalTree <- injectOtelIntoTree tree
+  runSimpleDb (SimpleDbEnv (qmConnection qm) (qmSettings qm)) (Workflow.insertJobTree finalTree)
 
 -- | Dequeue jobs
 dequeue ::
-    -- | QueueManager instance
-    QueueManager ->
-    -- | Batch size for dequeuing jobs
-    Int ->
-    -- | List of entrypoint execution parameters
-    [EntrypointExecutionParameter] ->
-    -- | Optional maximum number of jobs to dequeue
-    Maybe Int ->
-    -- | Heartbeat timeout in seconds
-    Int ->
-    IO [Job]
+  -- | QueueManager instance
+  QueueManager ->
+  -- | Batch size for dequeuing jobs
+  Int ->
+  -- | List of entrypoint execution parameters
+  [EntrypointExecutionParameter] ->
+  -- | Optional maximum number of jobs to dequeue
+  Maybe Int ->
+  -- | Heartbeat timeout in seconds
+  Int ->
+  IO [Job]
 dequeue qm batchSize params =
-    Q.dequeue
-        (qmConnection qm)
-        (qmSettings qm)
-        batchSize
-        params
-        (qmQueueManagerId qm)
+  Q.dequeue
+    (qmConnection qm)
+    (qmSettings qm)
+    batchSize
+    params
+    (qmQueueManagerId qm)
 
 -- | Log job status changes
 logJobs ::
-    -- | QueueManager instance
-    QueueManager ->
-    -- | List of job status changes with optional traceback
-    [(JobId, JobStatus, Maybe Value)] ->
-    IO ()
+  -- | QueueManager instance
+  QueueManager ->
+  -- | List of job status changes with optional traceback
+  [(JobId, JobStatus, Maybe Value)] ->
+  IO ()
 logJobs qm =
-    Q.logJobs (qmConnection qm) (qmSettings qm)
+  Q.logJobs (qmConnection qm) (qmSettings qm)
 
 -- | Get queue size statistics
 getQueueSize :: QueueManager -> IO [QueueStatistics]
@@ -213,11 +404,11 @@ getQueueSize qm = Q.queueSize (qmConnection qm) (qmSettings qm)
 
 -- | Clear the queue
 clearQueue ::
-    -- | QueueManager instance
-    QueueManager ->
-    -- | Optional list of entrypoints to clear; if Nothing, clears all
-    Maybe [Entrypoint] ->
-    IO ()
+  -- | QueueManager instance
+  QueueManager ->
+  -- | Optional list of entrypoints to clear; if Nothing, clears all
+  Maybe [Entrypoint] ->
+  IO ()
 clearQueue qm = Q.clearQueue (qmConnection qm) (qmSettings qm)
 
 -- | List failed jobs
@@ -240,13 +431,21 @@ updateHeartbeat qm = Q.updateHeartbeat (qmConnection qm) (qmSettings qm)
 requeueJobs :: QueueManager -> [JobId] -> IO ()
 requeueJobs qm = Q.requeueJobs (qmConnection qm) (qmSettings qm)
 
--- | Retry a job
-retryJob :: QueueManager -> Job -> NominalDiffTime -> Maybe Value -> IO ()
-retryJob qm = Q.retryJob (qmConnection qm) (qmSettings qm)
+-- | Retry jobs in bulk
+retryJobs :: QueueManager -> [(JobId, UTCTime, Int32)] -> IO ()
+retryJobs qm = Q.retryJobs (qmConnection qm) (qmSettings qm)
 
 -- ============================================================================
 -- Schema management
 -- ============================================================================
+
+-- | Idempotent function to verify if schema exists, and if not, install it.
+setupSchema :: QueueManager -> IO ()
+setupSchema qm = do
+  result <- verifyStructure qm
+  case result of
+    Left _ -> installSchema qm
+    Right () -> return ()
 
 -- | Verify schema structure
 verifyStructure :: QueueManager -> IO (Either String ())
@@ -262,17 +461,17 @@ uninstallSchema qm = uninstall (qmConnection qm) (qmSettings qm)
 
 -- | Run a QueueManager within a bracket (for resource safety)
 withQueueManager ::
-    -- | Connection string for PostgreSQL
-    ByteString ->
-    -- | Database settings
-    DBSettings ->
-    -- | Unique identifier for this QueueManager instance
-    UUID ->
-    -- | Action to run with the QueueManager
-    (QueueManager -> IO a) ->
-    IO a
+  -- | Connection string for PostgreSQL
+  ByteString ->
+  -- | Database settings
+  DBSettings ->
+  -- | Unique identifier for this QueueManager instance
+  UUID ->
+  -- | Action to run with the QueueManager
+  (QueueManager -> IO a) ->
+  IO a
 withQueueManager connStr settings queueMgrId action = do
-    bracket
-        (connectPostgreSQL connStr >>= \conn -> createQueueManager conn settings queueMgrId)
-        (close . qmConnection)
-        action
+  bracket
+    (connectPostgreSQL connStr >>= \conn -> createQueueManager conn settings queueMgrId)
+    (close . qmConnection)
+    action
